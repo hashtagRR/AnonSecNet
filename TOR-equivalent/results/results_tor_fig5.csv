@@ -1,0 +1,14 @@
+# Tor-equivalent Figure 5: cover traffic overhead
+# Source: tor_bench_fig5_cover.c
+# Tor has NO cover traffic by design (Tor spec section 7)
+# Tor overhead = 0% at all load levels
+load_pct,protocol,cover_overhead_pct,real_traffic_pct,bandwidth_efficiency
+10,tor_equivalent,0.00,100.00,1.0000
+20,tor_equivalent,0.00,100.00,1.0000
+30,tor_equivalent,0.00,100.00,1.0000
+40,tor_equivalent,0.00,100.00,1.0000
+50,tor_equivalent,0.00,100.00,1.0000
+60,tor_equivalent,0.00,100.00,1.0000
+70,tor_equivalent,0.00,100.00,1.0000
+80,tor_equivalent,0.00,100.00,1.0000
+90,tor_equivalent,0.00,100.00,1.0000
