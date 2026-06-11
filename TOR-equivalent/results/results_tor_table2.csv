@@ -1,0 +1,8 @@
+# Table 2: Throughput comparison (Tor-equivalent)
+# sessions,duration_s,total_payload_bytes,throughput_bytes_s
+1,60,162752,2712.5
+10,60,147776,2462.9
+50,60,156480,2608.0
+100,60,159232,2653.9
+500,60,234816,3913.6
+1000,60,334912,5581.9

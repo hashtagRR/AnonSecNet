@@ -1,0 +1,17 @@
+# Table 7: Aggregate throughput vs concurrent session count (60 s measurement window)
+# ASN n = 228–809 samples; Tor-equiv. n = 27–104 samples
+# Mean and ci95 in kbps; Peak is the maximum observed sample within the 60 s window
+# Source: ASN from ASN_sweep_table2.py + instrumented nodes; Tor from tor_table2_results.csv
+protocol,n_sessions,mean_kbps,ci95_kbps,peak_kbps,n_samples
+asn,1,126.3,9.0,368.6,228
+asn,5,421.6,12.4,901.1,423
+asn,10,812.2,17.8,1310.7,497
+asn,50,1958.2,118.9,5283.8,616
+asn,100,2358.6,205.5,12001.3,692
+asn,200,3776.7,314.9,30515.2,809
+tor,1,70.1,6.9,122.9,27
+tor,5,359.3,16.0,483.3,28
+tor,10,724.6,38.6,868.4,31
+tor,50,3327.4,257.6,3940.4,39
+tor,100,4669.9,812.0,7897.1,50
+tor,200,3430.9,530.5,11034.6,104

@@ -1,0 +1,7 @@
+# Figure 6: Session setup (path construction) time
+# ASN: 1,000 complete session setups through live instrumented nodes (2 parallel paths, 8 ECDHE handshakes)
+# TOR: 366 complete session setups through live instrumented Tor-equivalent nodes (1 path, 4 ECDHE handshakes)
+# Columns: protocol, n, mean_ms, ci95_ms, median_ms, p5_ms, p95_ms, min_ms, max_ms
+protocol,n,mean_ms,ci95_ms,median_ms,p5_ms,p95_ms,min_ms,max_ms
+asn,1000,14.948,0.174,14.426,13.562,16.834,13.023,56.657
+tor,366,10.438,0.203,10.109,7.698,13.464,6.624,14.450
