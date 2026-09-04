@@ -3,7 +3,6 @@
 Prototype implementation and evaluation code for:
 
 > **Anon-Sec-Net: Anonymous and Secure Communication at the Network Layer**  
-> Rathsara Relapanawa · Manjula Sandirigama  
 
 ---
 
