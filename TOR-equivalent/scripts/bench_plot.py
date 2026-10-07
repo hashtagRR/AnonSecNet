@@ -1,5 +1,5 @@
 """
-bench_plot.py  --  Plot all benchmark results produced by bench.exe
+bench_plot.py: Plot all benchmark results produced by bench.exe
 Requires: matplotlib, numpy, pandas
 
 Usage (run from project root):
@@ -41,7 +41,7 @@ LABELS = {
     "none": "No-anonymity baseline",
 }
 
-# ─── helpers ──────────────────────────────────────────────────────────────────
+# --- helpers ------------------------------------------------------------------
 
 def read_csv(path):
     """Read a bench.exe CSV where the column header is the last '# ...' line
@@ -61,11 +61,11 @@ def read_csv(path):
                 else:
                     data_lines.append(line)
     except FileNotFoundError:
-        print(f"[plot] {path} not found — skipping")
+        print(f"[plot] {path} not found, skipping")
         return None
 
     if not data_lines:
-        print(f"[plot] {path} has no data rows — skipping")
+        print(f"[plot] {path} has no data rows, skipping")
         return None
 
     # Use the last comment line that contains commas as the column header
@@ -76,7 +76,7 @@ def read_csv(path):
             break
 
     if header is None:
-        print(f"[plot] {path}: no header comment found — using first data row")
+        print(f"[plot] {path}: no header comment found, using first data row")
         header     = data_lines[0]
         data_lines = data_lines[1:]
 
@@ -87,7 +87,7 @@ def read_csv(path):
     return df
 
 
-# ─── Figure 2: Per-hop latency ────────────────────────────────────────────────
+# --- Figure 2: Per-hop latency ------------------------------------------------
 
 def plot_fig2(path="results_fig2.csv"):
     df = read_csv(path)
@@ -135,7 +135,7 @@ def plot_fig2(path="results_fig2.csv"):
         print(f"{size:>10}  {a:>14.3f}  {t:>10.3f}  {n:>12.3f}  {ratio:>15.2f}x")
 
 
-# ─── Figure 3: Path construction ─────────────────────────────────────────────
+# --- Figure 3: Path construction ---------------------------------------------
 
 def plot_fig3(path="results_fig3.csv"):
     df = read_csv(path)
@@ -175,7 +175,7 @@ def plot_fig3(path="results_fig3.csv"):
         print(f"  Ratio (ansn/tor): {ratio:.2f}x  (expected ~2x)")
 
 
-# ─── Figure 4: Anonymity set size ────────────────────────────────────────────
+# --- Figure 4: Anonymity set size --------------------------------------------
 
 def plot_fig4(path="results_fig4.csv"):
     df = read_csv(path)
@@ -219,7 +219,7 @@ def plot_fig4(path="results_fig4.csv"):
                   f"(expected ansn=1e-6, tor=1e-3)")
 
 
-# ─── Figure 5: Cover traffic overhead ────────────────────────────────────────
+# --- Figure 5: Cover traffic overhead ----------------------------------------
 
 def plot_fig5(path="results_fig5.csv"):
     df = read_csv(path)
@@ -251,7 +251,7 @@ def plot_fig5(path="results_fig5.csv"):
         print(f"{row['load_pct']:>6.0f}  {row['cover_overhead_pct']:>16.1f}")
 
 
-# ─── Table 2: Throughput ─────────────────────────────────────────────────────
+# --- Table 2: Throughput -----------------------------------------------------
 
 def plot_table2(path="results_table2.csv"):
     df = read_csv(path)
@@ -286,7 +286,7 @@ def plot_table2(path="results_table2.csv"):
     print("[plot] saved table2_summary.csv")
 
 
-# ─── main ────────────────────────────────────────────────────────────────────
+# --- main --------------------------------------------------------------------
 
 if __name__ == "__main__":
     plot_fig2()

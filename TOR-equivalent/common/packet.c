@@ -8,14 +8,14 @@
 #include <string.h>
 #include <stdio.h>
 
-/* ── AES-CTR XOR ─────────────────────────────────────────────────────────── */
+/* AES-CTR XOR */
 
 int packet_aes_ctr_xor(const uint8_t *key, size_t key_len,
                         const uint8_t *in,  size_t len,
                         uint8_t       *out) {
     if (!key || !in || !out || key_len != 32) return -1;
 
-    /* Zero nonce — safe because each key is used for exactly one purpose
+    /* Zero nonce, safe because each key is used for exactly one purpose
      * (derived via HKDF with a unique label) and never reused.            */
     uint8_t nonce[16] = {0};
     uint8_t ctr_out[WIRE_PACKET_SIZE + 16];  /* EVP needs some headroom    */
@@ -39,7 +39,7 @@ done:
     return rc;
 }
 
-/* ── HMAC-SHA256 truncated to MAC_BYTES ─────────────────────────────────── */
+/* HMAC-SHA256 truncated to MAC_BYTES */
 
 int packet_hmac(const uint8_t *key,  size_t key_len,
                 const uint8_t *data, size_t data_len,
@@ -56,12 +56,12 @@ int packet_hmac(const uint8_t *key,  size_t key_len,
     return 0;
 }
 
-/* ── Internal: derive sub-keys from hop session ─────────────────────────── */
+/* Internal: derive sub-keys from hop session */
 
 /* The client derives three keys per hop from the ECDHE shared secret:
- *   header_enc_key  — for AES-CTR encrypting addr+bkey in the header
- *   header_mac_key  — for HMAC over the header block
- *   blind_key       — for AES-CTR blinding the payload
+ *   header_enc_key:  for AES-CTR encrypting addr+bkey in the header
+ *   header_mac_key:  for HMAC over the header block
+ *   blind_key:       for AES-CTR blinding the payload
  *
  * Each is derived via HKDF with a unique label string so no two purposes
  * share a key even if they share the same master shared secret.            */
@@ -71,7 +71,7 @@ static int derive_hop_keys(const aes_key_t *master,
                            aes_key_t       *hmac_key,
                            aes_key_t       *bkey) {
     /* Reuse crypto_ecdh_derive-style HKDF via a small wrapper.
-     * We call crypto_aes_encrypt as a PRF — actually we need HKDF here.
+     * We call crypto_aes_encrypt as a PRF, actually we need HKDF here.
      * Simplest correct approach: use the master key as IKM and derive
      * three independent keys using distinct info strings.                  */
 
@@ -120,7 +120,7 @@ static int derive_hop_keys(const aes_key_t *master,
     return 0;
 }
 
-/* ── packet_sphinx_build ─────────────────────────────────────────────────── */
+/* packet_sphinx_build */
 
 int packet_sphinx_build(const sphinx_path_t *path,
                         const uint8_t       *payload,
@@ -137,7 +137,7 @@ int packet_sphinx_build(const sphinx_path_t *path,
 
     memset(out->data, 0, WIRE_PACKET_SIZE);
 
-    /* ── Step 1: Build inner payload buffer (padded to PAYLOAD_SECTION_SIZE)
+ /* Step 1: Build inner payload buffer (padded to PAYLOAD_SECTION_SIZE)
      * Layout: [flags(1)][payload_len(2)][payload][padding]               */
     /* Inner layout: [flags(1)][payload_len(2)][payload][padding]
      * Total inner_len = INNER_HDR_BYTES + payload_len                    */
@@ -149,7 +149,7 @@ int packet_sphinx_build(const sphinx_path_t *path,
     memcpy(inner + INNER_HDR_BYTES, payload, payload_len);
     size_t inner_len = INNER_HDR_BYTES + payload_len;
 
-    /* ── Step 2: Encrypt payload end-to-end under e2e_key (AES-256-GCM)   */
+ /* Step 2: Encrypt payload end-to-end under e2e_key (AES-256-GCM) */
     uint8_t e2e_ct[PAYLOAD_SECTION_SIZE];
     memset(e2e_ct, 0, sizeof(e2e_ct));
 
@@ -161,7 +161,7 @@ int packet_sphinx_build(const sphinx_path_t *path,
     }
     /* Remaining bytes in e2e_ct are already zero-padded                   */
 
-    /* ── Step 3: Apply blinding in REVERSE hop order (MN3, MN2, MN1)
+ /* Step 3: Apply blinding in REVERSE hop order (MN3, MN2, MN1)
      * When the packet travels MN1->MN2->MN3, each node XORs its keystream,
      * progressively cancelling the pre-applied blinding.
      * After MN3 processes it, e2e_ct is recovered at the SG.             */
@@ -178,7 +178,7 @@ int packet_sphinx_build(const sphinx_path_t *path,
         memcpy(blinded, tmp, PAYLOAD_SECTION_SIZE);
     }
 
-    /* ── Step 4: Build header blocks for each hop ─────────────────────────
+ /* Step 4: Build header blocks for each hop
      * Each block: [enc_addr(6)][enc_bkey(32)][mac(16)][hint(32)]
      * enc_addr and enc_bkey are AES-CTR encrypted under header_enc_key.
      * mac covers enc_addr||enc_bkey.                                      */
@@ -250,14 +250,14 @@ int packet_sphinx_build(const sphinx_path_t *path,
                path->hops[hop].hint, HINT_BYTES);
     }
 
-    /* ── Step 5: Assemble wire packet [header][blinded_payload]            */
+ /* Step 5: Assemble wire packet [header][blinded_payload] */
     memcpy(out->data,               header,  HEADER_SIZE);
     memcpy(out->data + HEADER_SIZE, blinded, PAYLOAD_SECTION_SIZE);
 
     return 0;
 }
 
-/* ── packet_sphinx_peel ──────────────────────────────────────────────────── */
+/* packet_sphinx_peel */
 
 int packet_sphinx_peel(const wire_packet_t *pkt,
                        const aes_key_t     *header_enc_key,
@@ -272,7 +272,7 @@ int packet_sphinx_peel(const wire_packet_t *pkt,
     /* Outermost header block is at bytes 0..HEADER_BLOCK_SIZE-1           */
     const uint8_t *block = pkt->data;
 
-    /* ── Verify MAC ─────────────────────────────────────────────────────── */
+    /* Verify MAC */
     uint8_t computed_mac[MAC_BYTES];
     if (packet_hmac(header_mac_key->key, AES_KEY_LEN,
                     block, ADDR_BYTES + BLIND_KEY_BYTES + FLAG_BYTES,
@@ -281,11 +281,11 @@ int packet_sphinx_peel(const wire_packet_t *pkt,
     if (crypto_memcmp(computed_mac,
                       block + ADDR_BYTES + BLIND_KEY_BYTES + FLAG_BYTES,
                       MAC_BYTES) != 0) {
-        fprintf(stderr, "[packet] peel: MAC verification failed — drop\n");
+        fprintf(stderr, "[packet] peel: MAC verification failed, drop\n");
         return -1;
     }
 
-    /* ── Decrypt enc_addr || enc_bkey || enc_flags ──────────────────────── */
+    /* Decrypt enc_addr || enc_bkey || enc_flags */
     uint8_t combined_enc[ADDR_BYTES + BLIND_KEY_BYTES + FLAG_BYTES];
     uint8_t combined_plain[ADDR_BYTES + BLIND_KEY_BYTES + FLAG_BYTES];
     memcpy(combined_enc, block, ADDR_BYTES + BLIND_KEY_BYTES + FLAG_BYTES);
@@ -301,7 +301,7 @@ int packet_sphinx_peel(const wire_packet_t *pkt,
     if (out_cover_flag)
         *out_cover_flag = combined_plain[ADDR_BYTES + BLIND_KEY_BYTES];
 
-    /* ── Apply blinding to payload (XOR with this hop's keystream) ──────── */
+    /* Apply blinding to payload (XOR with this hop's keystream) */
     const uint8_t *payload_in = pkt->data + HEADER_SIZE;
     uint8_t        payload_out[PAYLOAD_SECTION_SIZE];
 
@@ -309,7 +309,7 @@ int packet_sphinx_peel(const wire_packet_t *pkt,
                             payload_in, PAYLOAD_SECTION_SIZE,
                             payload_out) != 0) return -1;
 
-    /* ── Build output packet: shift header left by one block, copy payload  */
+ /* Build output packet: shift header left by one block, copy payload */
     memset(out_pkt->data, 0, WIRE_PACKET_SIZE);
 
     /* Remaining header blocks (hops 1 and 2) shift to position 0          */
@@ -329,7 +329,7 @@ int packet_sphinx_peel(const wire_packet_t *pkt,
     return 0;
 }
 
-/* ── packet_sphinx_unwrap ────────────────────────────────────────────────── */
+/* packet_sphinx_unwrap */
 
 int packet_sphinx_unwrap(const wire_packet_t *pkt,
                          const aes_key_t     *e2e_key,
@@ -354,7 +354,7 @@ int packet_sphinx_unwrap(const wire_packet_t *pkt,
     uint8_t plain[PAYLOAD_SECTION_SIZE];
     int n = crypto_aes_decrypt(e2e_key, ct, ct_len, plain, sizeof(plain));
     if (n < 0) {
-        /* Try with trimmed size — scan for last non-zero byte             */
+        /* Try with trimmed size, scan for last non-zero byte             */
         size_t trim = ct_len;
         while (trim > GCM_OVERHEAD + 3 && ct[trim-1] == 0) trim--;
         if (trim < GCM_OVERHEAD + 3) trim = GCM_OVERHEAD + 3;
@@ -379,16 +379,25 @@ int packet_sphinx_unwrap(const wire_packet_t *pkt,
         return -1;
     }
 
+    /* payload_out is the caller's MAX_INNER_PAYLOAD-sized buffer, not
+     * PAYLOAD_SECTION_SIZE: a modified client can claim a payload_len
+     * larger than the buffer even though it is within the decrypted bytes. */
+    if (*payload_len > MAX_INNER_PAYLOAD) {
+        fprintf(stderr, "[packet] unwrap: payload_len %u exceeds MAX_INNER_PAYLOAD %d\n",
+                *payload_len, MAX_INNER_PAYLOAD);
+        return -1;
+    }
+
     memcpy(payload_out, plain + INNER_HDR_BYTES, *payload_len);
     return 0;
 }
 
-/* ── packet_sphinx_dummy ─────────────────────────────────────────────────── */
+/* packet_sphinx_dummy */
 
 int packet_sphinx_dummy(const sphinx_path_t *path, wire_packet_t *out) {
     if (!path || !out) return -1;
 
-    /* Random payload — max size so even payload_len gives nothing away     */
+    /* Random payload, max size so even payload_len gives nothing away     */
     uint8_t rand_payload[MAX_INNER_PAYLOAD];
     if (RAND_bytes(rand_payload, MAX_INNER_PAYLOAD) != 1) return -1;
 

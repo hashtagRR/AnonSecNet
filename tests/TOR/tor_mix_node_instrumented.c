@@ -1,8 +1,8 @@
-/* tor_mix_node_instrumented.c  --  Tor-Equivalent Mix Node (Throughput Optimized)
+/* tor_mix_node_instrumented.c: Tor-Equivalent Mix Node (Throughput Optimized)
  *
  * Based on tor_mix_node.c but optimized for Table 2 throughput benchmark:
  *   - Minimal per-cell logging (printf kills throughput at high N)
- *   - Exit node (TN3) sends to SG and closes -- no response wait
+ *   - Exit node (TN3) sends to SG and closes, no response wait
  *   - Same ECDHE, GCM decrypt, session lookup as original
  *
  * Usage:  tor_mix_node_instrumented.exe <port>
@@ -28,8 +28,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
-#include <ws2tcpip.h>
 
 /* ---- Session store ------------------------------------------------------- */
 typedef struct {
@@ -38,7 +36,15 @@ typedef struct {
     uint16_t  next_port;
     int       is_exit;
     int       in_use;
+    DWORD     last_active_ms; /* GetTickCount() at alloc and every touch;
+                                * mirrors mix_node.c's session_alloc() TTL
+                                * reclaim, guarding against slot
+                                * exhaustion after TOR_MAX_SESSIONS
+                                * setups. */
 } tor_session_t;
+
+/* Same backstop rationale as mix_node.c's SESSION_TTL_MS. */
+#define TOR_SESSION_TTL_MS (5U * 60U * 1000U)
 
 static tor_session_t    g_sessions[TOR_MAX_SESSIONS];
 static CRITICAL_SECTION g_session_lock;
@@ -48,6 +54,7 @@ static tor_session_t *session_find(const uint8_t hint[TOR_HINT_BYTES]) {
     for (int i = 0; i < TOR_MAX_SESSIONS; i++) {
         if (g_sessions[i].in_use &&
             crypto_memcmp(g_sessions[i].hint, hint, TOR_HINT_BYTES) == 0) {
+            g_sessions[i].last_active_ms = GetTickCount();
             LeaveCriticalSection(&g_session_lock);
             return &g_sessions[i];
         }
@@ -58,12 +65,33 @@ static tor_session_t *session_find(const uint8_t hint[TOR_HINT_BYTES]) {
 
 static tor_session_t *session_alloc(void) {
     EnterCriticalSection(&g_session_lock);
+    DWORD now = GetTickCount();
     for (int i = 0; i < TOR_MAX_SESSIONS; i++) {
         if (!g_sessions[i].in_use) {
+            memset(&g_sessions[i], 0, sizeof(g_sessions[i]));
             g_sessions[i].in_use = 1;
+            g_sessions[i].last_active_ms = now;
             LeaveCriticalSection(&g_session_lock);
             return &g_sessions[i];
         }
+    }
+    /* Table full: reclaim the oldest slot past TOR_SESSION_TTL_MS, see
+     * mix_node.c's session_alloc() for the identical rationale. */
+    int oldest_idx = -1;
+    DWORD oldest_age = 0;
+    for (int i = 0; i < TOR_MAX_SESSIONS; i++) {
+        DWORD age = now - g_sessions[i].last_active_ms; /* wraps safely (unsigned) */
+        if (age >= TOR_SESSION_TTL_MS && age >= oldest_age) {
+            oldest_age = age;
+            oldest_idx = i;
+        }
+    }
+    if (oldest_idx >= 0) {
+        memset(&g_sessions[oldest_idx], 0, sizeof(g_sessions[oldest_idx]));
+        g_sessions[oldest_idx].in_use = 1;
+        g_sessions[oldest_idx].last_active_ms = now;
+        LeaveCriticalSection(&g_session_lock);
+        return &g_sessions[oldest_idx];
     }
     LeaveCriticalSection(&g_session_lock);
     return NULL;
@@ -164,7 +192,7 @@ static void handle_data(SOCKET sock, uint16_t my_port) {
 
     if (next_port == TOR_PORT_SG || next_port == 0) {
         /* EXIT NODE: forward to SG, close immediately, no response wait.
-         * The SG counts the cell for goodput. We don't need the echo. */
+         * The SG counts the cell for goodput. We do not need the echo. */
         SOCKET sg_sock = net_connect(TOR_LOCALHOST, TOR_PORT_SG);
         if (sg_sock != INVALID_SOCKET) {
             int sg_buf_len = 1 + 2 + inner_len;
@@ -235,7 +263,7 @@ static DWORD WINAPI handle_connection(LPVOID arg) {
         case TOR_MODE_EXTEND: handle_extend(sock, port); break;
         case TOR_MODE_DATA:   handle_data(sock, port);   break;
         case TOR_MODE_RESET:  handle_reset(port);        break;
-        /* Ignore RESPONSE mode -- not needed for throughput benchmark */
+        /* Ignore RESPONSE mode, not needed for throughput benchmark */
         default: break;
     }
 

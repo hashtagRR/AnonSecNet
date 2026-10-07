@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-plot_figure5.py  --  Anon-Sec-Net v2  Figure 5: Cover Traffic Overhead
+plot_figure5.py: Anon-Sec-Net v2  Figure 5: Cover Traffic Overhead
 
-Reads figure7_cover_overhead_120s.csv and produces
-figure5_cover_overhead.pdf/.png.
+Reads a cover-overhead CSV and produces figure5_cover_overhead.pdf/.png.
+The default is the curated file in ../results/. A fresh run of
+tests/ASN/sweep_figure5.py writes figure7_cover_overhead_120s.csv, which
+can be passed with --csv.
 
 Usage:
-    python plot_figure5.py [--csv figure7_cover_overhead_120s.csv] [--out-dir .]
+    python plot_figure5.py [--csv ../results/figure7_cover_overhead_hardened.csv] [--out-dir .]
 """
 
 import argparse
@@ -36,7 +38,7 @@ def read_csv(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--csv",     default="figure7_cover_overhead_120s.csv")
+    parser.add_argument("--csv",     default="../results/figure7_cover_overhead_hardened.csv")
     parser.add_argument("--out-dir", default=".")
     args = parser.parse_args()
 

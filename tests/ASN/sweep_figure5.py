@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sweep_figure5.py  --  Anon-Sec-Net v2  Figure 5: Cover Traffic Bandwidth Overhead
+sweep_figure5.py: Anon-Sec-Net v2  Figure 5: Cover Traffic Bandwidth Overhead
 
 HOW TO RUN
 ----------
@@ -34,7 +34,7 @@ LINK_CSV     = "link_bytes.csv"
 WARMUP_S     = 3        # let cover thread fill ring queues before sampling
 
 
-# ── CSV reader ────────────────────────────────────────────────────────────────
+# -- CSV reader ----------------------------------------------------------------
 def read_link_csv(path):
     """Return list of (cover_bytes, real_bytes) per 200ms sampler window.
 
@@ -73,7 +73,7 @@ def ci95(values):
     return m, (2.0 if n < 30 else 1.96) * std / math.sqrt(n)
 
 
-# ── Async stdout reader (works on Windows) ───────────────────────────────────
+# -- Async stdout reader (works on Windows) -----------------------------------
 class StdoutPump:
     """Continuously drain a subprocess's stdout into a thread-safe queue
     so the child never blocks on a full pipe."""
@@ -116,15 +116,20 @@ class StdoutPump:
             sys.stdout.write(f"  [client] {line}")
 
 
-# ── Subprocess driver ────────────────────────────────────────────────────────
-def start_client():
-    if not os.path.exists(CLIENT_EXE) and shutil.which(CLIENT_EXE) is None:
-        print(f"ERROR: {CLIENT_EXE} not found in cwd or PATH",
+# -- Subprocess driver --------------------------------------------------------
+def start_client(client_exe=None):
+    exe = client_exe or CLIENT_EXE
+    if os.path.exists(exe):
+        # Windows' CreateProcess implicitly searches cwd; POSIX exec does
+        # not, so a bare filename here would only resolve via $PATH.
+        exe = os.path.join(".", exe)
+    elif shutil.which(client_exe or CLIENT_EXE) is None:
+        print(f"ERROR: {client_exe or CLIENT_EXE} not found in cwd or PATH",
               file=sys.stderr)
         sys.exit(1)
 
     proc = subprocess.Popen(
-        [CLIENT_EXE],
+        [exe],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -139,7 +144,7 @@ def set_rate(proc, frac):
     proc.stdin.flush()
 
 
-# ── Per-level sweep ──────────────────────────────────────────────────────────
+# -- Per-level sweep ----------------------------------------------------------
 def run_level(proc, pump, link_csv, load, duration_s):
     set_rate(proc, load)
     before = len(read_link_csv(link_csv))
@@ -179,13 +184,16 @@ def run_level(proc, pump, link_csv, load, duration_s):
     }
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
+# -- main ---------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--duration", type=int, default=60,
                         help="seconds per load level (spec:60, quick:10)")
     parser.add_argument("--link-csv", default=LINK_CSV)
     parser.add_argument("--out-dir",  default=".")
+    parser.add_argument("--client-exe", default=CLIENT_EXE,
+                        help="use client_instrumented_hardened.exe for "
+                             "ASN_LOOPIX_MIXING runs")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -207,8 +215,8 @@ def main():
     print(f"  Output         : {out_path}")
     print()
 
-    print("  Launching client_instrumented.exe ...")
-    proc = start_client()
+    print(f"  Launching {args.client_exe} ...")
+    proc = start_client(args.client_exe)
     pump = StdoutPump(proc)
 
     try:

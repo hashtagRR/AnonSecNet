@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 """
-montecarlo_figure4.py  --  Anon-Sec-Net v2  Figure 4: Anonymity Set Size
+*** SUPERSEDED, DO NOT RUN ***
+This script hardcodes an old disclosure-ladder model (D1=f^6,
+D2=f^3 for the single-path baseline) that no longer matches the current
+protocol. Running it
+overwrites `figure4_anonymity_set.csv` with wrong data, silently
+corrupting `analyse_figure4.py`/`plot_figure4.py`'s output too, since they
+read whatever this script last wrote. The script that actually produces
+the current submission's de-anonymisation figure is
+`Submission_revised/plotscripts/montecarlo_fig_deanon.py` (D1=f^2,
+D2=f^4, D3=f^7, matching `anosecnet.tex`'s Result D1-D3), run that one
+instead. Kept in the tree only for reference; not deleted.
+***
+
+montecarlo_figure4.py: Anon-Sec-Net v2  Figure 4: Anonymity Set Size
 
 Methodology (spec §13.3):
   - Sweep f from 0.00 to 1.00 in steps of F_STEP
@@ -9,7 +22,7 @@ Methodology (spec §13.3):
     as malicious with independent probability f
   - De-anonymisation succeeds iff ALL 6 nodes on BOTH paths are malicious
     (the adversary must control the full dual path to correlate sender and
-    receiver -- spec §IV.D: P(deanon) = f^6)
+    receiver: spec §IV.D: P(deanon) = f^6)
   - The Tor-equivalent baseline uses 3 nodes (single path): P(deanon) = f^3
   - Writes raw per-session results to montecarlo_raw.csv
   - Writes per-f summary to figure4_anonymity_set.csv (used by analyser)
@@ -77,14 +90,15 @@ def ci95_proportion(k: int, n: int) -> float:
     denom = 1 + z * z / n
     centre = (p + z * z / (2 * n)) / denom
     spread = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
-    # half-width is spread; centre is the adjusted estimate -- we return spread
+    # half-width is spread; centre is the adjusted estimate, we return spread
     return spread
 
 
 def run_sweep(n_sessions: int,
               f_values: list,
               raw_fp,
-              verbose: bool = True) -> list:
+              verbose: bool = True,
+              seed: int = None) -> list:
     """Run the Monte Carlo sweep.
 
     Returns a list of dicts, one per f value, with keys:
@@ -93,7 +107,11 @@ def run_sweep(n_sessions: int,
         tor_mc, tor_mc_ci95,
         n_sessions
     """
-    rng = random.Random()   # thread-local, seeded from OS entropy
+    # Seeded from the caller's --seed when given; previously this always
+    # constructed a fresh OS-entropy-seeded RNG here regardless of --seed,
+    # making --seed a silent no-op (module-level random.seed() only affects
+    # the global random module, not this local Random() instance).
+    rng = random.Random(seed)
     results = []
 
     raw_writer = None
@@ -260,7 +278,7 @@ def main() -> int:
     raw_fp = None
     if not args.no_raw:
         raw_fp = open(raw_path, "w", newline="")
-        raw_fp.write("# Per-session raw results -- large file\n")
+        raw_fp.write("# Per-session raw results, large file\n")
 
     t0 = time.perf_counter()
     try:
@@ -269,6 +287,7 @@ def main() -> int:
             f_values=f_values,
             raw_fp=raw_fp,
             verbose=not args.quiet,
+            seed=args.seed,
         )
     finally:
         if raw_fp is not None:

@@ -1,4 +1,4 @@
-/* tor_config.h  --  Tor-Equivalent Baseline Configuration
+/* tor_config.h: Tor-Equivalent Baseline Configuration
  *
  * Three-hop single-path circuit:
  *   Guard  (TN1) : port 9040
@@ -17,24 +17,24 @@
 #ifndef TOR_CONFIG_H
 #define TOR_CONFIG_H
 
-/* ── Ports ─────────────────────────────────────────────────────────────── */
+/* Ports */
 #define TOR_PORT_TN1          9040    /* Guard node   */
 #define TOR_PORT_TN2          9041    /* Middle node  */
 #define TOR_PORT_TN3          9042    /* Exit node    */
 #define TOR_PORT_SG           9043    /* Simulated destination / SG       */
 #define TOR_PORT_CLIENT       9044    /* Client listener for responses    */
 
-/* ── Protocol modes (first byte on wire) ──────────────────────────────── */
+/* Protocol modes (first byte on wire) */
 #define TOR_MODE_EXTEND       0x10    /* Telescoping ECDHE handshake      */
 #define TOR_MODE_DATA         0x11    /* Forward relay cell (full re-enc) */
 #define TOR_MODE_RESPONSE     0x12    /* Backward relay cell              */
 
-/* ── Crypto sizes ─────────────────────────────────────────────────────── */
+/* Crypto sizes */
 /*    Reuses EC_PUBKEY_LEN, AES_KEY_LEN, GCM_* from common/crypto.h      */
 #define TOR_HINT_BYTES        16      /* Session lookup hint              */
 #define TOR_CELL_PAYLOAD      1024    /* Fixed relay cell payload size    */
 
-/* ── Cell layout ──────────────────────────────────────────────────────── */
+/* Cell layout */
 /*    On the wire a relay cell is:
  *      [hint 16B][GCM_NONCE 12B][ciphertext N][GCM_TAG 16B]
  *    where ciphertext = encrypted(next_port_2B + inner_cell_or_payload)
@@ -59,13 +59,13 @@
 #define TOR_MAX_PAYLOAD       (TOR_CELL_PAYLOAD - TOR_MAX_HOPS * TOR_CELL_OVERHEAD) /* 1024-138 = 886 */
 #define TOR_MAX_CELL_SIZE     (TOR_CELL_PAYLOAD + TOR_MAX_HOPS * TOR_CELL_OVERHEAD) /* 1024+138 = 1162 */
 
-/* ── Session limits ───────────────────────────────────────────────────── */
+/* Session limits */
 #define TOR_MAX_SESSIONS      1024
 
-/* ── Network ──────────────────────────────────────────────────────────── */
+/* Network */
 #define TOR_LOCALHOST          "127.0.0.1"
 
-/* ── Pubkey directory (same convention as Anon-Sec-Net) ────────────────── */
+/* Pubkey directory (same convention as Anon-Sec-Net) */
 #define TOR_PUBKEY_DIR         "tor_pubkeys"
 
 #endif /* TOR_CONFIG_H */

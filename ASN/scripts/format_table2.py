@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-format_table2.py  --  Anon-Sec-Net v2  Table 2: Throughput Comparison
+format_table2.py: Anon-Sec-Net v2  Table 2: Throughput Comparison
 
 Reads table2_results.csv and produces:
   - table2_throughput.tex   (LaTeX booktabs table)
@@ -44,6 +44,13 @@ def read_csv(path):
         return rows
     with open(path, newline="") as fp:
         reader = csv.DictReader(filter(lambda l: not l.startswith("#"), fp))
+        if reader.fieldnames is None or "n_clients" not in reader.fieldnames \
+                or "protocol" not in reader.fieldnames:
+            sys.exit(
+                f"ERROR: {path} doesn't look like a table2_results.csv-style "
+                f"file (need 'n_clients'/'protocol' columns, found "
+                f"{reader.fieldnames}), wrong file passed to --csv/--tor-csv?"
+            )
         for row in reader:
             rows.append({
                 "n":        int(row["n_clients"]),
@@ -77,7 +84,7 @@ def write_latex(pivoted, protos, path):
     lines = [
         r"\begin{table}[t]",
         r"\centering",
-        r"\caption{Table 2: Aggregate Throughput vs Concurrent Sessions (60 s runs)}",
+        r"\caption{Table 2: Aggregate Throughput vs Concurrent Sessions (30 s runs)}",
         r"\label{tab:throughput}",
         r"\begin{tabular}{l" + "rr" * len(protos) + "}",
         r"\toprule",
@@ -121,7 +128,7 @@ def write_markdown(pivoted, protos, path):
                 r = pivoted[n][p]
                 row += f" {r['mean_kbps']:.1f} | ±{r['ci95_kbps']:.1f} |"
             else:
-                row += " — | — |"
+                row += " - | - |"
         lines.append(row)
     with open(path, "w") as fp:
         fp.write("\n".join(lines) + "\n")
@@ -170,8 +177,11 @@ def write_chart(pivoted, protos, path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv",     default="table2_results.csv")
-    parser.add_argument("--tor-csv", default="tor_sg_goodput.csv",
-                        help="Optional Tor-equivalent goodput CSV")
+    parser.add_argument("--tor-csv", default="tor_table2_results.csv",
+                        help="Optional Tor-equivalent table2-style results CSV "
+                             "(n_clients,protocol,mean_kbps,..., NOT the raw "
+                             "per-sample tor_sg_goodput.csv sampler log, which "
+                             "has an incompatible schema)")
     parser.add_argument("--out-dir", default=".")
     args = parser.parse_args()
 

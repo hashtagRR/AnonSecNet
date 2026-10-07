@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sweep_figure3.py  --  Anon-Sec-Net v2  Figure 3: Path Construction Time
+sweep_figure3.py: Anon-Sec-Net v2  Figure 3: Path Construction Time
 
 Runs the client_instrumented.exe repeatedly to collect 1000 session-setup
 timing samples for ASN (dual path, 8 ECDHE handshakes) and reads the
@@ -50,15 +50,18 @@ import socket
 MAX_SESSIONS_PER_NODE = 1024  # from mix_node.c #define MAX_SESSIONS 1024
 NODES_IN_USE          = 8    # 3 send + 3 recv + SG (counted twice) = 8 sessions
 
-def stop_nodes():
-    print("  [auto] stopping nodes...")
-    subprocess.call(["stop_nodes.bat"], shell=True)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def stop_nodes(stop_script="stop_nodes.sh"):
+    print(f"  [auto] stopping nodes ({stop_script})...")
+    subprocess.call([os.path.join(SCRIPT_DIR, stop_script)])
     time.sleep(3)   # allow sockets to close
 
 
-def start_nodes():
-    print("  [auto] starting nodes...")
-    subprocess.call(["start_nodes.bat"], shell=True)
+def start_nodes(start_script="start_nodes.sh"):
+    print(f"  [auto] starting nodes ({start_script})...")
+    subprocess.call([os.path.join(SCRIPT_DIR, start_script)])
 
     # wait for key services
     for port in [9004, 9005, 9006, 9007, 9008, 9009]:
@@ -139,34 +142,61 @@ CLIENT_RESPONSE_PORT = 9020   # must match config.h CLIENT_RESPONSE_PORT
 
 
 def kill_zombies() -> int:
-    """Kill any leftover client_instrumented.exe processes on Windows.
+    """Kill any leftover client_instrumented.exe processes from a prior
+    timed-out rep.
 
     Returns the number of processes killed.
     """
     killed = 0
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        try:
+            out = subprocess.check_output(
+                ["tasklist", "/FI", "IMAGENAME eq client_instrumented.exe",
+                 "/FO", "CSV", "/NH"],
+                stderr=None
+            ).decode(errors="replace")
+            for row in out.splitlines():
+                row = row.strip().strip('"')
+                if not row or row.startswith("INFO"):
+                    continue
+                parts = [p.strip().strip('"') for p in row.split(",")]
+                if len(parts) >= 2:
+                    try:
+                        pid = int(parts[1])
+                        subprocess.call(["taskkill", "/F", "/PID", str(pid)],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=None)
+                        killed += 1
+                    except (ValueError, Exception):
+                        pass
+        except Exception:
+            pass
         return killed
+
+    # Match on argv[0] of /proc/*/cmdline rather than "pgrep -f": -f matches
+    # anywhere in the full command line, which would also match this very
+    # sweep script's own argv (it contains "--client-exe
+    # client_instrumented.exe"), causing it to kill itself on the first
+    # iteration. "pgrep -x" doesn't work either since the kernel truncates
+    # comm to 15 chars, shorter than this binary's name.
+    my_pid = os.getpid()
     try:
-        out = subprocess.check_output(
-            ["tasklist", "/FI", "IMAGENAME eq client_instrumented.exe",
-             "/FO", "CSV", "/NH"],
-            stderr=None
-        ).decode(errors="replace")
-        for row in out.splitlines():
-            row = row.strip().strip('"')
-            if not row or row.startswith("INFO"):
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
                 continue
-            parts = row.split('","|',)
-            # tasklist CSV: "name","pid","session","#","mem"
-            parts = [p.strip().strip('"') for p in row.split(",")]
-            if len(parts) >= 2:
+            pid = int(entry)
+            if pid == my_pid:
+                continue
+            try:
+                with open(f"/proc/{entry}/cmdline", "rb") as fp:
+                    argv0 = fp.read().split(b"\0", 1)[0].decode(errors="replace")
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if os.path.basename(argv0) == "client_instrumented.exe":
                 try:
-                    pid = int(parts[1])
-                    subprocess.call(["taskkill", "/F", "/PID", str(pid)],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=None)
+                    os.kill(pid, 9)
                     killed += 1
-                except (ValueError, Exception):
+                except (ProcessLookupError, PermissionError):
                     pass
     except Exception:
         pass
@@ -201,7 +231,7 @@ def run_client_once(client_exe: str, session_csv: str,
 
     # Wait for port 9020 to be free before binding a new client.
     if not wait_port_free(CLIENT_RESPONSE_PORT, timeout=8.0):
-        print(f"  [warn] port {CLIENT_RESPONSE_PORT} still busy -- skipping rep",
+        print(f"  [warn] port {CLIENT_RESPONSE_PORT} still busy, skipping rep",
               flush=True)
         return False
 
@@ -238,7 +268,7 @@ def run_client_once(client_exe: str, session_csv: str,
 
     final_count = len(read_float_csv(session_csv))
 
-    # ✅ STRICT CHECK
+    # STRICT CHECK
     if final_count == before + 1:
         return True
     else:
@@ -263,6 +293,11 @@ def main():
                         help="Directory for output files")
     parser.add_argument("--no-clear",   action="store_true",
                         help="Do not clear session_setup.csv before the run")
+    parser.add_argument("--start-script", default="start_nodes.sh",
+                         help="node-start script to use for auto-restart checkpoints "
+                              "(use start_nodes_hardened.sh for ASN_LOOPIX_MIXING runs)")
+    parser.add_argument("--stop-script",  default="stop_nodes.sh",
+                         help="matching node-stop script (stop_nodes_hardened.sh)")
     parser.add_argument("--timeout",    type=int, default=15,
                         help="Per-rep timeout in seconds (default 15)")
     args = parser.parse_args()
@@ -314,8 +349,8 @@ def main():
                 print(f"  [auto] restart at iteration {i}")
                 print("  *** Auto-restarting nodes ***")
 
-                stop_nodes()
-                start_nodes()
+                stop_nodes(args.stop_script)
+                start_nodes(args.start_script)
 
                 print("  [auto] nodes restarted, continuing...\n")
         ok = run_client_once(args.client_exe, args.session_csv,
@@ -341,7 +376,7 @@ def main():
     # Read and summarise ASN results
     asn_values = read_float_csv(args.session_csv)
 
-    # 🔒 HARD CAP to expected reps
+    # HARD CAP to expected reps
     if len(asn_values) > args.reps:
         print(f"  [warn] trimming extra samples: {len(asn_values)} -> {args.reps}")
         asn_values = asn_values[:args.reps]

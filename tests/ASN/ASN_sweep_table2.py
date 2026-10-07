@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sweep_table2.py  --  Anon-Sec-Net v2  Table 2: Throughput
+sweep_table2.py: Anon-Sec-Net v2  Table 2: Throughput
 
 Measures aggregate throughput by launching N clients, letting each one
 send real GET packets through the full Sphinx path (MN1->MN2->MN3->SG)
@@ -26,6 +26,35 @@ import os
 import subprocess
 import sys
 import time
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def restart_nodes_and_reseed(start_script="start_nodes.sh", stop_script="stop_nodes.sh"):
+    """Full node-cluster restart between counts.
+
+    Necessary (not just for fresh session slots): service_gateway's
+    sg_goodput.csv is opened once in append mode for the node's whole
+    lifetime, but clear_csv() truncates that same path from Python between
+    counts. Truncating a file out from under a long-lived append-mode
+    FILE* leaves the C process writing at its old (now stale) byte
+    offset, producing a hole of NUL bytes that swallows every following
+    row when re-parsed as CSV, so goodput silently reads back empty for
+    every count after the first unless the node holding the handle is
+    restarted too.
+
+    start_script/stop_script default to the plain (un-hardened) node
+    scripts; pass start_nodes_hardened.sh/stop_nodes_hardened.sh for an
+    ASN_LOOPIX_MIXING run, see sweep_figure3.py's matching fix for why
+    this matters (an earlier hardened run silently fell back to plain
+    nodes mid-sweep before this was parameterized).
+    """
+    subprocess.call([os.path.join(SCRIPT_DIR, stop_script)])
+    time.sleep(1)
+    subprocess.call([os.path.join(SCRIPT_DIR, start_script)])
+    subprocess.call([sys.executable,
+                      os.path.join(SCRIPT_DIR, "..", "..", "ASN",
+                                   "scripts", "seed_cache.py")])
 
 
 def read_goodput_csv(path):
@@ -135,7 +164,7 @@ def run_session_count(n_clients, client_exe, session_csv,
         if ready >= len(procs):
             break
     ready = count_session_csv(session_csv) - before_sessions
-    print(f" {ready}/{len(procs)} ready -- measuring for {duration_s}s")
+    print(f" {ready}/{len(procs)} ready, measuring for {duration_s}s")
 
     # Send SET_RATE 1.0 to all clients so they send real packets (not cover).
     # Cover packets are dropped at MN1 by design and never reach the SG.
@@ -154,18 +183,18 @@ def run_session_count(n_clients, client_exe, session_csv,
         stop_proc(p)
     time.sleep(1.0)
 
-    # Read goodput -- skip first 3 and last 2 samples (startup/teardown)
+    # Read goodput, skip first 3 and last 2 samples (startup/teardown)
     values = read_goodput_csv(goodput_csv)
     if len(values) > 6:
         values = values[3:-2]
 
-    # Filter zeros -- cover packets that were dropped before SG
+    # Filter zeros, cover packets that were dropped before SG
     nonzero = [v for v in values if v > 0]
     working = nonzero if nonzero else values
 
     if not working:
         return {"n_clients": n_clients, "mean_bps": 0,
-                "ci95_bps": 0, "peak_bps": 0, "n": 0}
+                "ci95_bps": 0, "peak_bps": 0, "n": 0, "n_total": len(values)}
 
     m, hw = ci95(working)
     return {
@@ -200,6 +229,8 @@ def main():
     parser.add_argument("--tor-csv",     default="tor_sg_goodput.csv")
     parser.add_argument("--nonanon-csv", default="nonanon_sg_goodput.csv")
     parser.add_argument("--out-dir",     default=".")
+    parser.add_argument("--start-script", default="start_nodes.sh")
+    parser.add_argument("--stop-script",  default="stop_nodes.sh")
     args = parser.parse_args()
 
     counts = [int(x.strip()) for x in args.counts.split(",") if x.strip()]
@@ -246,8 +277,10 @@ def main():
             print("    no data")
 
         if i < len(counts) - 1:
-            print(f"    Restart nodes now to clear session slots, then press Enter...")
-            input()
+            print(f"    Restarting nodes to clear session slots and "
+                  f"goodput file offset...", end="", flush=True)
+            restart_nodes_and_reseed(args.start_script, args.stop_script)
+            print(" done.")
 
     tor     = read_baseline(args.tor_csv)
     nonanon = read_baseline(args.nonanon_csv)

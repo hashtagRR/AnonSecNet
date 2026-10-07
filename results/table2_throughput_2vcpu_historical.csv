@@ -1,0 +1,23 @@
+# Historical: 2-vCPU dev-box throughput run, superseded by the 16-vCPU
+# GCP data (table2_throughput_16vcpu.csv). Hardware no longer available;
+# kept for the paper's cross-machine dose-response comparison.
+# N=50 (asn) measured 2834.8 kbps, ~3x an earlier pre-fix baseline of
+# 964.1 kbps at the same N (re-run 3x to confirm: 2169.7/2409.3/2782.3
+# kbps, all clustering with this row). Root cause: the earlier baseline
+# predated a session-table capacity fix (32 -> 1024 slots in the
+# gateway); at N=50 clients needing ~400 concurrent slots, the old cap
+# was silently dropping sessions and throttling measured throughput.
+# This row's 2834.8 kbps is the correct, uncapped figure.
+protocol,n_sessions,mean_kbps,ci95_kbps,peak_kbps,n_samples
+asn,1,91.074,5.747,286.720,264
+asn,5,407.129,16.039,819.200,315
+asn,10,785.004,25.654,1269.760,327
+asn,50,2834.809,141.862,6348.800,435
+asn,100,926.621,85.240,6881.280,824
+asn,200,806.893,63.739,6471.680,1075
+tor,1,74.942,10.877,131.072,27
+tor,5,382.098,27.710,499.712,28
+tor,10,804.181,28.960,942.080,30
+tor,50,3571.302,312.762,4358.144,40
+tor,100,1336.801,399.318,5431.296,49
+tor,200,1005.479,275.445,5177.344,69

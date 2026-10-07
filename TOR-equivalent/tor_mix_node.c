@@ -1,4 +1,4 @@
-/* tor_mix_node.c  --  Tor-Equivalent Baseline Mix Node
+/* tor_mix_node.c: Tor-Equivalent Baseline Mix Node
  *
  * One binary, three instances:
  *   Guard  (TN1) : port 9040
@@ -22,7 +22,7 @@
 #include "common/crypto.h"
 #include "tor_config.h"
 
-/* ── Benchmark reset mode ─────────────────────────────────────────────────
+/* Benchmark reset mode
  * TOR_MODE_RESET (0x1F): wipes all sessions from the store.
  * Used by bench.exe between Figure 3 iterations so the 64-slot session
  * table never fills up.  Wire format: just the 1-byte mode, no payload.  */
@@ -40,10 +40,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
-#include <ws2tcpip.h>
+#include "common/posix_compat.h"
 
-/* ── Session store ────────────────────────────────────────────────────── */
+/* Session store */
 
 typedef struct {
     uint8_t   hint[TOR_HINT_BYTES];   /* x-coord prefix of client pubkey */
@@ -51,7 +50,17 @@ typedef struct {
     uint16_t  next_port;              /* next hop (learned at extend)    */
     int       is_exit;                /* 1 if this is the exit node      */
     int       in_use;
+    DWORD     last_active_ms; /* GetTickCount() at alloc and every touch;
+                                * used by session_alloc() to reclaim a
+                                * stale slot once the table fills up,
+                                * mirrors mix_node.c's session_alloc(),
+                                * see TOR_SESSION_TTL_MS below. */
 } tor_session_t;
+
+/* Same backstop rationale as mix_node.c's SESSION_TTL_MS: not a claim
+ * about real-world session lifetime, just a bound against unbounded
+ * slot exhaustion from sessions that never complete. */
+#define TOR_SESSION_TTL_MS (5U * 60U * 1000U)
 
 static tor_session_t    g_sessions[TOR_MAX_SESSIONS];
 static CRITICAL_SECTION g_session_lock;
@@ -61,6 +70,7 @@ static tor_session_t *session_find(const uint8_t hint[TOR_HINT_BYTES]) {
     for (int i = 0; i < TOR_MAX_SESSIONS; i++) {
         if (g_sessions[i].in_use &&
             crypto_memcmp(g_sessions[i].hint, hint, TOR_HINT_BYTES) == 0) {
+            g_sessions[i].last_active_ms = GetTickCount();
             LeaveCriticalSection(&g_session_lock);
             return &g_sessions[i];
         }
@@ -71,21 +81,44 @@ static tor_session_t *session_find(const uint8_t hint[TOR_HINT_BYTES]) {
 
 static tor_session_t *session_alloc(void) {
     EnterCriticalSection(&g_session_lock);
+    DWORD now = GetTickCount();
     for (int i = 0; i < TOR_MAX_SESSIONS; i++) {
         if (!g_sessions[i].in_use) {
+            memset(&g_sessions[i], 0, sizeof(g_sessions[i]));
             g_sessions[i].in_use = 1;
+            g_sessions[i].last_active_ms = now;
             LeaveCriticalSection(&g_session_lock);
             return &g_sessions[i];
         }
+    }
+    /* Table full: reclaim the oldest slot past TOR_SESSION_TTL_MS rather
+     * than refuse every subsequent client for the lifetime of the
+     * process: see mix_node.c's session_alloc() for the identical
+     * rationale (single-oldest-slot reclaim, not mass eviction). */
+    int oldest_idx = -1;
+    DWORD oldest_age = 0;
+    for (int i = 0; i < TOR_MAX_SESSIONS; i++) {
+        DWORD age = now - g_sessions[i].last_active_ms; /* wraps safely (unsigned) */
+        if (age >= TOR_SESSION_TTL_MS && age >= oldest_age) {
+            oldest_age = age;
+            oldest_idx = i;
+        }
+    }
+    if (oldest_idx >= 0) {
+        memset(&g_sessions[oldest_idx], 0, sizeof(g_sessions[oldest_idx]));
+        g_sessions[oldest_idx].in_use = 1;
+        g_sessions[oldest_idx].last_active_ms = now;
+        LeaveCriticalSection(&g_session_lock);
+        return &g_sessions[oldest_idx];
     }
     LeaveCriticalSection(&g_session_lock);
     return NULL;
 }
 
-/* ── Node keypair ─────────────────────────────────────────────────────── */
+/* Node keypair */
 static ecdh_keypair_t g_node_kp = {0};
 
-/* ── Logging ──────────────────────────────────────────────────────────── */
+/* Logging */
 static void log_msg(uint16_t port, const char *msg) {
     printf("[TN:%u] %s\n", port, msg); fflush(stdout);
 }
@@ -93,13 +126,13 @@ static void log_err(uint16_t port, const char *msg) {
     fprintf(stderr, "[TN:%u] ERROR: %s\n", port, msg); fflush(stderr);
 }
 
-/* ── Per-connection context ───────────────────────────────────────────── */
+/* Per-connection context */
 typedef struct {
     SOCKET   client_sock;
     uint16_t my_port;
 } conn_ctx_t;
 
-/* ── TOR_MODE_EXTEND handler ──────────────────────────────────────────── */
+/* TOR_MODE_EXTEND handler */
 /*  Wire format:
  *    [target_port 2B][client_pubkey 65B]
  *    if target_port != 0:
@@ -181,7 +214,7 @@ static void handle_extend(SOCKET sock, uint16_t my_port) {
     }
 }
 
-/* ── TOR_MODE_DATA handler ────────────────────────────────────────────── */
+/* TOR_MODE_DATA handler */
 /*
  * THIS IS THE KEY BENCHMARK TARGET (Figure 2).
  *
@@ -214,7 +247,7 @@ static void handle_data(SOCKET sock, uint16_t my_port) {
     /* Session lookup (O(1) via hint, same as Anon-Sec-Net) */
     tor_session_t *sess = session_find(hint);
     if (!sess) {
-        log_err(my_port, "data: no session for hint -- drop"); return;
+        log_err(my_port, "data: no session for hint, drop"); return;
     }
 
     /* Read cell length (2 bytes, big-endian) */
@@ -237,10 +270,10 @@ static void handle_data(SOCKET sock, uint16_t my_port) {
         free(cell_buf); return;
     }
 
-    /* ════════════════════════════════════════════════════════════════════
+    /* ====================================================================
      *  FULL AES-256-GCM DECRYPT  (this is what makes Tor expensive)
      *  Decrypts the ENTIRE cell payload, not just a small header block.
-     * ════════════════════════════════════════════════════════════════════ */
+     * ==================================================================== */
     size_t pt_max = cell_len;  /* plaintext is shorter, but this is safe */
     uint8_t *plaintext = malloc(pt_max);
     if (!plaintext) {
@@ -254,7 +287,7 @@ static void handle_data(SOCKET sock, uint16_t my_port) {
     free(cell_buf);
 
     if (pt_len < 2) {
-        log_err(my_port, "data: GCM decrypt failed -- drop");
+        log_err(my_port, "data: GCM decrypt failed, drop");
         free(plaintext); return;
     }
 
@@ -325,7 +358,7 @@ static void handle_data(SOCKET sock, uint16_t my_port) {
         snprintf(rl, sizeof(rl), "data: SG response %u bytes, encrypting", resp_len);
         log_msg(my_port, rl);
 
-        /* Encrypt response under our (TN3's) session key — first layer */
+        /* Encrypt response under our (TN3's) session key, first layer */
         size_t enc_size = resp_len + GCM_OVERHEAD;
         uint8_t *enc_buf = malloc(enc_size);
         if (!enc_buf) { free(resp_data); return; }
@@ -432,7 +465,7 @@ static void handle_data(SOCKET sock, uint16_t my_port) {
     free(plaintext);
 }
 
-/* ── TOR_MODE_RESPONSE handler ────────────────────────────────────────── */
+/* TOR_MODE_RESPONSE handler */
 /*
  * Response path (TN3 -> TN2 -> TN1 -> Client).
  * Each hop AES-256-GCM ENCRYPTS the cell under its session key
@@ -484,7 +517,7 @@ static void handle_response(SOCKET sock, uint16_t my_port) {
         free(payload); return;
     }
 
-    /* AES-256-GCM ENCRYPT — add one layer */
+    /* AES-256-GCM ENCRYPT, add one layer */
     size_t enc_size = payload_len + GCM_OVERHEAD;
     uint8_t *enc_buf = malloc(enc_size);
     if (!enc_buf) { free(payload); return; }
@@ -506,7 +539,7 @@ static void handle_response(SOCKET sock, uint16_t my_port) {
             /* Guard node: deliver to client response listener on TOR_PORT_CLIENT.
              * tor_client.c starts a response_listener thread on this port.
              * In bench mode (bench.exe) nothing listens here, so the connect
-             * will fail silently — that is acceptable for throughput benchmarks
+             * will fail silently, that is acceptable for throughput benchmarks
              * which only measure the forward path.                          */
             fwd_port = TOR_PORT_CLIENT;
             break;
@@ -544,8 +577,8 @@ static void handle_response(SOCKET sock, uint16_t my_port) {
     net_close(next_sock);
 }
 
-/* ── TOR_MODE_RESET handler ───────────────────────────────────────────── */
-/* Wipes every session slot so bench iterations don't exhaust the store.   */
+/* TOR_MODE_RESET handler */
+/* Wipes every session slot so bench iterations do not exhaust the store.   */
 static void handle_reset(uint16_t my_port) {
     EnterCriticalSection(&g_session_lock);
     memset(g_sessions, 0, sizeof(g_sessions));
@@ -553,7 +586,7 @@ static void handle_reset(uint16_t my_port) {
     log_msg(my_port, "reset: all sessions cleared");
 }
 
-/* ── Connection handler ───────────────────────────────────────────────── */
+/* Connection handler */
 static DWORD WINAPI handle_connection(LPVOID arg) {
     conn_ctx_t *ctx  = (conn_ctx_t *)arg;
     SOCKET      sock = ctx->client_sock;
@@ -581,7 +614,7 @@ done:
     return 0;
 }
 
-/* ── main ─────────────────────────────────────────────────────────────── */
+/* main */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: tor_mix_node.exe <port>\n"); return 1;
@@ -606,7 +639,7 @@ int main(int argc, char *argv[]) {
     CreateDirectoryA(TOR_PUBKEY_DIR, NULL);
     char pubkey_path[256];
     snprintf(pubkey_path, sizeof(pubkey_path),
-             "%s\\%u.pub", TOR_PUBKEY_DIR, port);
+             "%s/%u.pub", TOR_PUBKEY_DIR, port);
     if (crypto_pubkey_save(&g_node_kp, pubkey_path) != 0) {
         fprintf(stderr, "[TN:%u] save pubkey failed\n", port);
         net_cleanup(); return 1;
@@ -618,7 +651,7 @@ int main(int argc, char *argv[]) {
 
     printf("[TN:%u] ready (Tor-equivalent baseline)\n", port); fflush(stdout);
 
-    /* No cover traffic thread -- per spec Section 12.1 */
+    /* No cover traffic thread, per spec Section 12.1 */
 
     while (1) {
         SOCKET cs = net_accept(server_sock);

@@ -1,11 +1,11 @@
 
 
-/* bench_figure2.c  --  Anon-Sec-Net v2  Figure 2 per-hop crypto benchmark
+/* bench_figure2.c: Anon-Sec-Net v2  Figure 2 per-hop crypto benchmark
  *
  * Measures all three Figure 2 variants under identical in-process conditions,
  * 1000 invocations per payload size per variant, matching spec Section 13.1.
  *
- * ── VARIANT DEFINITIONS ────────────────────────────────────────────────────
+ * VARIANT DEFINITIONS
  *
  *   asn     : packet_sphinx_peel() on a valid 1024-byte wire packet.
  *             Operations per hop:
@@ -13,11 +13,11 @@
  *               2. AES-256-CTR decrypt 39 bytes
  *               3. AES-256-CTR XOR   763 bytes            (payload blinding)
  *               4. memmove 174 bytes                      (header shift)
- *             Wire packet is ALWAYS 1024 bytes → CONSTANT cost per hop.
+ *             Wire packet is ALWAYS 1024 bytes -> CONSTANT cost per hop.
  *             Expected result: flat line across all payload sizes.
  *
  *   tor     : AES-256-GCM DECRYPT only on payload_size bytes (onion peel).
- *             Real Tor per-hop operation is single-layer decryption — relays
+ *             Real Tor per-hop operation is single-layer decryption, relays
  *             peel one layer, they do NOT re-encrypt.
  *             Pre-build (encrypt) is excluded from timing each rep.
  *             Cost scales linearly with payload_size.
@@ -25,7 +25,7 @@
  *   nonanon : AES-256-GCM encrypt only on payload_size bytes.
  *             Minimum-crypto baseline: no anonymisation overhead.
  *
- * ── KEY DERIVATION (FIX) ───────────────────────────────────────────────────
+ * KEY DERIVATION (FIX)
  *
  * packet.c::packet_sphinx_build() calls derive_hop_keys() internally, which
  * uses AES-CTR(master, SHA256(label)) to produce henc/hmac/bkey.
@@ -41,9 +41,9 @@
  *   3. Stores the derived bkey in path->hops[i].blind_key (used directly
  *      by packet_sphinx_build() for payload blinding).
  *
- * ── TOR MODEL (FIX) ────────────────────────────────────────────────────────
+ * TOR MODEL (FIX)
  *
- * Previous version timed encrypt+decrypt (2× GCM ops) — that overstates
+ * Previous version timed encrypt+decrypt (2× GCM ops), that overstates
  * Tor per-hop cost.  Tor relays only DECRYPT (peel) on the forward path.
  * Fixed: pre-encrypt outside the timed region; measure only the decrypt.
  *
@@ -63,16 +63,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <winsock2.h>
-#include <windows.h>
-
 #include "common/net.h"
 #include "common/crypto.h"
 #include "common/packet.h"
 #include "common/config.h"
 #include "common/measure.h"
 
-/* ── Configuration ─────────────────────────────────────────────────────── */
+/* Configuration */
 
 #define DEFAULT_REPS 1000
 
@@ -81,7 +78,11 @@ static const int PAYLOAD_SIZES[] = {
 };
 static const int N_SIZES = (int)(sizeof(PAYLOAD_SIZES)/sizeof(PAYLOAD_SIZES[0]));
 
-/* ── High-resolution timer (Windows QPC) ───────────────────────────────── */
+/* High-resolution timer. Windows-style QueryPerformanceCounter API for
+ * historical reasons (this file predates the Linux port), but on this
+ * platform it's POSIX CLOCK_MONOTONIC underneath (see
+ * common/posix_compat.h's QPC shim), ns resolution, timings are
+ * legitimate, this is a naming staleness only. */
 
 static double g_ticks_per_us = 1.0;
 
@@ -97,7 +98,7 @@ static inline double timer_us(void) {
     return (double)t.QuadPart / g_ticks_per_us;
 }
 
-/* ── Statistics ─────────────────────────────────────────────────────────── */
+/* Statistics */
 
 static int cmp_dbl(const void *a, const void *b) {
     double x = *(const double *)a, y = *(const double *)b;
@@ -108,7 +109,7 @@ typedef struct { double mean, ci95, min, max, p50, p95; } stats_t;
 
 /* Compute statistics with a trimmed mean.
  *
- * Latency distributions on a Windows loopback host have a stable core
+ * Latency distributions on a loopback host have a stable core
  * (the actual crypto cost) plus a long tail of OS scheduling interruptions
  * that inflate the mean at specific payload sizes without representing
  * real processing cost.
@@ -117,18 +118,18 @@ typedef struct { double mean, ci95, min, max, p50, p95; } stats_t;
  *   - Sort all samples.
  *   - Report min, max, p50, p95 from the FULL sorted array (honest tail).
  *   - Compute mean and CI95 from the INNER 95% only (drop bottom 2.5%
- *     and top 2.5%) -- this is a standard trimmed mean, equivalent to
+ *     and top 2.5%), this is a standard trimmed mean, equivalent to
  *     a 5% Winsorised mean and well-accepted in systems benchmarking.
  *
  * The trimmed mean eliminates jitter-induced spikes (e.g. at 32768B)
- * while remaining statistically honest -- the trim fraction and the
+ * while remaining statistically honest, the trim fraction and the
  * full percentiles are both reported in the CSV output.
  */
 static stats_t compute_stats(double *s, int n) {
     stats_t r = {0};
     if (n <= 0) return r;
 
-    /* Sort once -- used for both percentiles and trimmed mean */
+    /* Sort once, used for both percentiles and trimmed mean */
     double *sorted = malloc((size_t)n * sizeof(double));
     memcpy(sorted, s, (size_t)n * sizeof(double));
     qsort(sorted, (size_t)n, sizeof(double), cmp_dbl);
@@ -164,34 +165,34 @@ static stats_t compute_stats(double *s, int n) {
     return r;
 }
 
-/* ── Node session ─────────────────────────────────────────────────────── */
+/* Node session */
 typedef struct {
     uint8_t   hint[HINT_BYTES];
     aes_key_t header_enc_key;
     aes_key_t header_mac_key;
 } node_sess_t;
 
-/* ── Build a valid sphinx path + matching node sessions ─────────────────
+/* Build a valid sphinx path + matching node sessions
  *
  * Key contract (verified by reading packet.c source):
  *
  *   packet_sphinx_build() uses path->hops[i] fields DIRECTLY:
- *     - header_enc_key  → AES-CTR encrypt (addr+bkey+flag)
- *     - header_mac_key  → HMAC over the encrypted block
- *     - blind_key       → AES-CTR XOR over payload section
- *     - hint            → copied verbatim into header block
+ *     - header_enc_key  -> AES-CTR encrypt (addr+bkey+flag)
+ *     - header_mac_key  -> HMAC over the encrypted block
+ *     - blind_key       -> AES-CTR XOR over payload section
+ *     - hint            -> copied verbatim into header block
  *
  *   packet_sphinx_peel() also uses the passed keys DIRECTLY:
- *     - header_enc_key  → AES-CTR decrypt
- *     - header_mac_key  → HMAC verify
+ *     - header_enc_key  -> AES-CTR decrypt
+ *     - header_mac_key  -> HMAC verify
  *
  *   NOTE: derive_hop_keys() inside packet_sphinx_build() is called but
- *   its output is NEVER USED — it is dead code from an earlier design.
+ *   its output is NEVER USED, it is dead code from an earlier design.
  *   The build uses header_enc_key/header_mac_key/blind_key as-is.
  *
  * Therefore: we generate three independent random AES keys per hop,
  * store them directly in path->hops[i], and store the same keys in
- * sessions[i]. No ECDH, no derivation — the bench only needs consistent
+ * sessions[i]. No ECDH, no derivation, the bench only needs consistent
  * keys between build and peel, not a real protocol handshake.
  *
  * We still use ECDH for realism (same code path as production) but
@@ -209,32 +210,33 @@ static int make_path(sphinx_path_t *path, node_sess_t sessions[N_PATH_HOPS]) {
             crypto_ecdh_free(&client_kp); return -1;
         }
 
-        /* ECDH → shared secret (used as header_enc_key) */
+        /* ECDH -> shared secret (used as header_enc_key) */
         aes_key_t shared = {0};
         if (crypto_ecdh_derive(&client_kp, node_kp.pubkey_bytes, &shared) != 0) {
             crypto_ecdh_free(&node_kp); crypto_ecdh_free(&client_kp); return -1;
         }
 
-        /* Produce three independent keys by rotating the shared secret.
-         * header_enc_key = shared
-         * header_mac_key = shared rotated left 1 byte
-         * blind_key      = shared rotated left 2 bytes
-         * These are distinct 32-byte keys with the same entropy.          */
-        aes_key_t henc = shared;
+        /* Produce three independent keys via packet_derive_hop_keys(), the
+         * same labelled-PRF KDF production code uses (client.c, sender.c,
+         * mix_node.c), matches what's actually measured elsewhere and
+         * avoids the byte-rotation this benchmark used previously (any
+         * one of three rotated keys would trivially yield the other two). */
+        aes_key_t henc = {0};
         aes_key_t hmac = {0};
         aes_key_t bkey = {0};
-        for (int b = 0; b < AES_KEY_LEN; b++) {
-            hmac.key[b] = shared.key[(b + 1) % AES_KEY_LEN];
-            bkey.key[b] = shared.key[(b + 2) % AES_KEY_LEN];
-        }
+        packet_derive_hop_keys(&shared, &henc, &hmac, &bkey);
 
-        /* Store directly in path — packet_sphinx_build uses these as-is  */
+        /* Store directly in path, packet_sphinx_build uses these as-is  */
         path->hops[i].header_enc_key = henc;
         path->hops[i].header_mac_key = hmac;
         path->hops[i].blind_key      = bkey;
-        memcpy(path->hops[i].hint, hint, HINT_BYTES);
+        /* packet_sphinx_build() derives the hint fresh from hint_seed
+         * (this benchmark calls it with a constant pkt_counter=0, see the
+         * call site below, so this is still effectively one fixed value
+         * per session). */
+        packet_derive_hint_seed(&shared, &path->hops[i].hint_seed);
 
-        /* Node sessions hold the same keys — packet_sphinx_peel uses as-is */
+        /* Node sessions hold the same keys, packet_sphinx_peel uses as-is */
         memcpy(sessions[i].hint, hint, HINT_BYTES);
         sessions[i].header_enc_key = henc;
         sessions[i].header_mac_key = hmac;
@@ -258,7 +260,7 @@ static int make_path(sphinx_path_t *path, node_sess_t sessions[N_PATH_HOPS]) {
     return 0;
 }
 
-/* ── ASN: time packet_sphinx_peel() ─────────────────────────────────────── */
+/* ASN: time packet_sphinx_peel() */
 static void bench_asn(int payload_size, int reps, double *out_times) {
     sphinx_path_t path = {0};
     node_sess_t   sessions[N_PATH_HOPS];
@@ -282,15 +284,15 @@ static void bench_asn(int payload_size, int reps, double *out_times) {
         return;
     }
 
-    /* Validate peel succeeds before timing — catches key mismatches early */
+    /* Validate peel succeeds before timing, catches key mismatches early */
     {
-        hop_info_t    th = {0}; wire_packet_t to = {0}; uint8_t tc = 0;
+        hop_info_t    th = {0}; wire_packet_t to = {0};
         if (packet_sphinx_peel(&ref_pkt,
                                &sessions[0].header_enc_key,
                                &sessions[0].header_mac_key,
-                               sessions[0].hint, &th, &to, &tc) != 0) {
+                               sessions[0].hint, &th, &to) != 0) {
             fprintf(stderr,
-                "[bench_asn] FATAL: peel validation failed — "
+                "[bench_asn] FATAL: peel validation failed, "
                 "key derivation mismatch between build and peel.\n"
                 "           Check that derive_node_keys() matches "
                 "packet.c::derive_hop_keys().\n");
@@ -302,21 +304,20 @@ static void bench_asn(int payload_size, int reps, double *out_times) {
     const node_sess_t *s = &sessions[0];
     hop_info_t    hop_info = {0};
     wire_packet_t out_pkt  = {0};
-    uint8_t       cover    = 0;
 
     for (int r = 0; r < reps; r++) {
         double t0 = timer_us();
         packet_sphinx_peel(&ref_pkt,
                            &s->header_enc_key, &s->header_mac_key,
-                           s->hint, &hop_info, &out_pkt, &cover);
+                           s->hint, &hop_info, &out_pkt);
         double t1 = timer_us();
         out_times[r] = t1 - t0;
     }
 }
 
-/* ── Tor: time AES-256-GCM DECRYPT only (single-layer peel) ─────────────
+/* Tor: time AES-256-GCM DECRYPT only (single-layer peel)
  *
- * Each rep: pre-encrypt outside timed region → decrypt inside timed region.
+ * Each rep: pre-encrypt outside timed region -> decrypt inside timed region.
  * This reflects what a real Tor relay does: one GCM decrypt per forward hop.
  */
 static void bench_tor(int payload_size, int reps, double *out_times) {
@@ -351,7 +352,7 @@ static void bench_tor(int payload_size, int reps, double *out_times) {
     free(plain); free(cipher); free(decryp);
 }
 
-/* ── No-anon: AES-256-GCM encrypt only ──────────────────────────────────── */
+/* No-anon: AES-256-GCM encrypt only */
 static void bench_nonanon(int payload_size, int reps, double *out_times) {
     aes_key_t key = {0};
     for (int i = 0; i < AES_KEY_LEN; i++) key.key[i] = (uint8_t)(rand() & 0xFF);
@@ -374,7 +375,7 @@ static void bench_nonanon(int payload_size, int reps, double *out_times) {
     free(plain); free(cipher);
 }
 
-/* ── main ───────────────────────────────────────────────────────────────── */
+/* main */
 int main(int argc, char *argv[]) {
     int reps = DEFAULT_REPS;
     if (argc > 1) {
@@ -390,12 +391,12 @@ int main(int argc, char *argv[]) {
     fprintf(stderr,
         "# bench_figure2.exe  reps=%d  trimmed_mean=inner_95pct\n"
         "# mean/ci95 computed on inner 95%% of samples (drop top+bottom 2.5%%)\n"
-        "# ASN    : packet_sphinx_peel() — fixed 1024B wire pkt — CONSTANT cost\n"
-        "#          HMAC verify (39B) + AES-CTR decrypt (39B)\n"
-        "#          + AES-CTR blind (763B) + header shift (174B)\n"
-        "# Tor    : AES-256-GCM DECRYPT only (onion peel, 1 layer) — scales\n"
+        "# ASN    : packet_sphinx_peel(), fixed 1024B wire pkt, CONSTANT cost\n"
+        "#          HMAC verify (47B) + AES-CTR decrypt (47B)\n"
+        "#          + AES-CTR blind (739B) + header shift (190B)\n"
+        "# Tor    : AES-256-GCM DECRYPT only (onion peel, 1 layer), scales\n"
         "#          Pre-build excluded from timing per rep\n"
-        "# nonanon: AES-256-GCM ENCRYPT only — minimum-crypto baseline\n"
+        "# nonanon: AES-256-GCM ENCRYPT only, minimum-crypto baseline\n"
         "# ASN payload cap: MAX_INNER_PAYLOAD=%d B; cost constant above this\n",
         reps, MAX_INNER_PAYLOAD);
 

@@ -1,13 +1,13 @@
-/* client.c  --  User / Receiver  (Anon-Sec-Net v2)
+/* client.c: User / Receiver  (Anon-Sec-Net v2)
  *
  * Outbound packet payload (enc_K_R-SG-A):
  *   [flags(1)][payload_len(2)]
  *   [MNc_pubkey(65)][MNc_IP:port(6)]
- *   [return_header(162)]     <- enc_SK_R-MNc(MNb + enc_SK_R-MNb(MNa + enc_SK_R-MNa(Client)))
+ *   [return_header(174)]     <- enc_SK_R-MNc(MNb + enc_SK_R-MNb(MNa + enc_SK_R-MNa(Client)))
  *   [app_data(variable)]     <- TYPE_GET/PUT + key + content
  *
  * Return packet received from MNa (enc_K_R-SG-B):
- *   [return_header(162)]     <- shifted down as MNc/MNb/MNa peel
+ *   [return_header(174)]     <- shifted down as MNc/MNb/MNa peel
  *   [enc_K_R-SG-B(response)]
  */
 
@@ -21,12 +21,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
+#include "common/posix_compat.h"
 #include <math.h>
+#include <openssl/rand.h>
 #include <stdatomic.h>
 
 
-/* ── Session state ──────────────────────────────────────────────────────── */
+/* Session state */
 
 typedef struct {
     /* Sending path A: Client -> MN1 -> MN2 -> MN3 -> SG */
@@ -44,6 +45,10 @@ typedef struct {
 
     /* Pre-built return header (rebuilt each session) */
     return_header_t return_hdr;
+    /* M-c: addrs used to build return_hdr above, stashed so
+     * build_spare_return_header() can build additional (cover) headers
+     * without re-deriving them, see build_paths()'s comment. */
+    uint8_t  return_addrs[N_PATH_HOPS][ADDR_BYTES];
 
     /* Client response address (embedded in return header innermost layer) */
     uint8_t  client_addr[ADDR_BYTES];
@@ -53,7 +58,7 @@ typedef struct {
 
 static client_state_t g_state = {0};
 
-/* ── Response synchronisation ───────────────────────────────────────────── */
+/* Response synchronisation */
 static uint8_t          g_resp_buf[WIRE_PACKET_SIZE];
 static volatile int     g_resp_ready = 0;
 static CRITICAL_SECTION g_resp_lock;
@@ -63,7 +68,7 @@ static HANDLE           g_resp_event;
 static void log_msg(const char *m) { printf("[Client] %s\n", m); fflush(stdout); }
 static void log_err(const char *m) { fprintf(stderr,"[Client] ERROR: %s\n",m); fflush(stderr); }
 
-/* ── ECDHE with a single node ───────────────────────────────────────────── */
+/* ECDHE with a single node */
 static int ecdhe_with_node(const char *addr, uint16_t port,
                             uint8_t    role,
                             aes_key_t *out_master,
@@ -92,16 +97,70 @@ static int ecdhe_with_node(const char *addr, uint16_t port,
     return rc;
 }
 
-/* ── Key splitting from ECDH master ─────────────────────────────────────
+/* Telescoped ECDHE through an entry node
+ * Same mechanism/rationale as production client.c::ecdhe_telescoped_path()
+ *, see that file's comment. This benchmark client drives every Table 2/
+ * Figure 5/6/7 measurement, so it needs the identical mechanism. */
+static int ecdhe_telescoped_path(const uint16_t *ports, int n_hops,
+                                  uint8_t role,
+                                  aes_key_t masters[],
+                                  uint8_t (*hints)[HINT_BYTES],
+                                  uint8_t (*node_pubs)[EC_PUBKEY_LEN]) {
+    SOCKET s = net_connect(LOCALHOST, ports[0]);
+    if (s == INVALID_SOCKET) return -1;
+
+    int ok = -1;
+    for (int i = 0; i < n_hops; i++) {
+        ecdh_keypair_t kp = {0};
+        if (crypto_ecdh_keygen(&kp) != 0) goto done;
+        memcpy(hints[i], kp.pubkey_bytes + 1, HINT_BYTES);
+
+        uint16_t next_port = (i + 1 < n_hops) ? ports[i + 1] : 0;
+        uint8_t  tport[2] = { (uint8_t)(next_port >> 8),
+                               (uint8_t)(next_port & 0xFF) };
+
+        if (i == 0) {
+            uint8_t mode = MODE_EXTEND;
+            net_send_all(s, &mode,           1);
+            net_send_all(s, &role,           1);
+            net_send_all(s, tport,           2);
+            net_send_all(s, kp.pubkey_bytes, EC_PUBKEY_LEN);
+        } else {
+            uint8_t relay_buf[1 + 2 + EC_PUBKEY_LEN];
+            relay_buf[0] = role;
+            relay_buf[1] = tport[0];
+            relay_buf[2] = tport[1];
+            memcpy(relay_buf + 3, kp.pubkey_bytes, EC_PUBKEY_LEN);
+            uint16_t rlen = (uint16_t)sizeof(relay_buf);
+            uint8_t  rlen_bytes[2] = { (uint8_t)(rlen >> 8),
+                                        (uint8_t)(rlen & 0xFF) };
+            net_send_all(s, rlen_bytes, 2);
+            net_send_all(s, relay_buf,  rlen);
+        }
+
+        if (net_recv_all(s, node_pubs[i], EC_PUBKEY_LEN) != 0) {
+            crypto_ecdh_free(&kp); goto done;
+        }
+        int rc = crypto_ecdh_derive(&kp, node_pubs[i], &masters[i]);
+        crypto_ecdh_free(&kp);
+        if (rc != 0) goto done;
+    }
+    ok = 0;
+done:
+    net_close(s);
+    return ok;
+}
+
+/* Key splitting from ECDH master
  *
  * packet_sphinx_build() and packet_sphinx_peel() use header_enc_key,
- * header_mac_key, and blind_key DIRECTLY — no internal re-derivation.
+ * header_mac_key, and blind_key DIRECTLY, no internal re-derivation.
  *
- * Three independent keys are produced by byte-rotation of the 32-byte
- * ECDH master — identical to mix_node.c::split_master_keys():
- *   header_enc_key = master
- *   header_mac_key = master rotated left 1 byte
- *   blind_key      = master rotated left 2 bytes
+ * Three independent keys are produced by packet_derive_hop_keys(), a
+ * labelled PRF over the 32-byte ECDH master, identical to
+ * mix_node_instrumented.c::split_master_keys() (and production
+ * mix_node.c), not a byte-rotation, which would be invertible (any one
+ * of the three rotated keys trivially yielding the other two).
  *
  * Used for BOTH the sending path (stored in sphinx_path_t.hops[i] for
  * packet_sphinx_build) and the receiving path (stored in recv_hops[i]
@@ -111,39 +170,48 @@ static void split_master_keys(const aes_key_t *master,
                               aes_key_t *henc,
                               aes_key_t *hmac_key,
                               aes_key_t *bkey) {
-    *henc = *master;
-    for (int b = 0; b < AES_KEY_LEN; b++) {
-        hmac_key->key[b] = master->key[(b + 1) % AES_KEY_LEN];
-        bkey->key[b]     = master->key[(b + 2) % AES_KEY_LEN];
-    }
+    packet_derive_hop_keys(master, henc, hmac_key, bkey);
 }
 
 /* Populate hop_session_t for the SENDING path (MN1/MN2/MN3).
  * Stores all three split keys; packet_sphinx_build uses them directly. */
-static void derive_hop_send(const aes_key_t *master, hop_session_t *hop,
-                            const uint8_t hint[HINT_BYTES]) {
+static void derive_hop_send(const aes_key_t *master, hop_session_t *hop) {
     aes_key_t henc = {0}, hmac = {0}, bkey = {0};
     split_master_keys(master, &henc, &hmac, &bkey);
     hop->header_enc_key = henc;
     hop->header_mac_key = hmac;
     hop->blind_key      = bkey;
-    memcpy(hop->hint, hint, HINT_BYTES);
+    /* This benchmark binary intentionally keeps a static-hint behavior
+     * (every packet_sphinx_build() call below passes a constant
+     * pkt_counter=0, unlike production client.c/sender.c which
+     * increment a real per-session counter), Figure 2/3/Table 2
+     * measure this unmodified path on purpose, see config.h's
+     * HINT_WINDOW comment. hint_seed still needs deriving here (not
+     * left zero) purely so each session's own hint value stays unique
+     * to that session (HMAC(hint_seed, 0)) rather than every session
+     * colliding on HMAC(zero-key, 0), mix_node_instrumented.c's own
+     * matching mirrors this exact "derive once, match one static value"
+     * scheme. */
+    packet_derive_hint_seed(master, &hop->hint_seed);
 }
 
 /* Populate hop_session_t for the RECEIVING path (MNc/MNb/MNa).
  * packet_build_return_header uses header_enc_key and header_mac_key
  * directly. mix_node.c stores the same split keys after ECDH. */
-static void derive_hop_recv(const aes_key_t *master, hop_session_t *hop,
-                            const uint8_t hint[HINT_BYTES]) {
+static void derive_hop_recv(const aes_key_t *master, hop_session_t *hop) {
     aes_key_t henc = {0}, hmac = {0}, bkey = {0};
     split_master_keys(master, &henc, &hmac, &bkey);
     hop->header_enc_key = henc;
     hop->header_mac_key = hmac;
     hop->blind_key      = bkey;   /* unused on return path but populated */
-    memcpy(hop->hint, hint, HINT_BYTES);
+    /* Same static-hint policy
+     * as derive_hop_send() above, hint_seed still needs deriving (used
+     * with a constant counter=0 at the one build_return_header() call
+     * site below) purely so it is session-unique, not left zero. */
+    packet_derive_hint_seed(master, &hop->hint_seed);
 }
 
-/* ── Build IP:port addr bytes ───────────────────────────────────────────── */
+/* Build IP:port addr bytes */
 static void make_addr_bytes(const char *ip, uint16_t port,
                              uint8_t out[ADDR_BYTES]) {
     /* Parse dotted-decimal IP */
@@ -155,33 +223,53 @@ static void make_addr_bytes(const char *ip, uint16_t port,
     out[5] = (uint8_t)(port & 0xFF);
 }
 
-/* ── Build both paths ───────────────────────────────────────────────────── */
+/* Lets multiple instrumented client
+ * identities run concurrently on this one loopback testbed, each
+ * listening on its own response port, so a shared mix node sees
+ * genuinely interleaved traffic from distinct sessions instead of one
+ * session at a time. Mirrors client.c's identical mechanism
+ * (config.h's CLIENT_RESPONSE_PORT_COUNT). ASN_CLIENT_RESPONSE_PORT env
+ * var overrides the default; falls back to CLIENT_RESPONSE_PORT
+ * unchanged when unset, so a normal single-client run is unaffected. */
+static uint16_t client_response_port(void) {
+    const char *env = getenv("ASN_CLIENT_RESPONSE_PORT");
+    if (!env) return CLIENT_RESPONSE_PORT;
+    long v = atol(env);
+    if (v < CLIENT_RESPONSE_PORT ||
+        v >= CLIENT_RESPONSE_PORT + CLIENT_RESPONSE_PORT_COUNT) {
+        return CLIENT_RESPONSE_PORT;
+    }
+    return (uint16_t)v;
+}
+
+/* Build both paths */
 static int build_paths(void) {
     MEASURE_SESSION_BEGIN();             /* P2: start session timer */
     log_msg("building sending path A (MN1->MN2->MN3->SG)...");
 
     uint16_t send_ports[N_PATH_HOPS] = { PORT_MIX_1, PORT_MIX_2, PORT_MIX_3 };
 
-    /* Build sending path sphinx_path_t */
-    for (int i = 0; i < N_PATH_HOPS; i++) {
-        aes_key_t master = {0};
-        uint8_t   hint[HINT_BYTES]      = {0};
-        uint8_t   node_pub[EC_PUBKEY_LEN] = {0};
+    /* Build sending path sphinx_path_t. Telescoped through MN1, see
+     * production client.c's identical comment. */
+    {
+        aes_key_t masters[N_PATH_HOPS];
+        uint8_t   hints[N_PATH_HOPS][HINT_BYTES];
+        uint8_t   node_pubs[N_PATH_HOPS][EC_PUBKEY_LEN];
 
-        if (ecdhe_with_node(LOCALHOST, send_ports[i], SESSION_ROLE_A,
-                            &master, hint, node_pub) != 0) {
-            char err[64];
-            snprintf(err, sizeof(err), "ECDHE failed MN%d (port %u)",
-                     i+1, send_ports[i]);
-            log_err(err); return -1;
+        if (ecdhe_telescoped_path(send_ports, N_PATH_HOPS, SESSION_ROLE_A,
+                                  masters, hints, node_pubs) != 0) {
+            log_err("telescoped ECDHE failed on sending path"); return -1;
         }
-        derive_hop_send(&master, &g_state.send_path.hops[i], hint);
-        g_state.send_path.hop_ports[i] = send_ports[i];
+        for (int i = 0; i < N_PATH_HOPS; i++) {
+            derive_hop_send(&masters[i], &g_state.send_path.hops[i]);
+            g_state.send_path.hop_ports[i] = send_ports[i];
 
-        char logbuf[64];
-        snprintf(logbuf, sizeof(logbuf),
-                 "  sending hop %d ready (port %u)", i+1, send_ports[i]);
-        log_msg(logbuf);
+            char logbuf[64];
+            snprintf(logbuf, sizeof(logbuf),
+                     "  sending hop %d ready (port %u)", i+1, send_ports[i]);
+            log_msg(logbuf);
+        }
+        explicit_bzero(masters, sizeof(masters));
     }
 
     /* E2E session with SG via path A -> K_R-SG-A */
@@ -206,30 +294,31 @@ static int build_paths(void) {
      * Order [0]=MNc, [1]=MNb, [2]=MNa  (outermost to innermost) */
     uint16_t recv_ports[N_PATH_HOPS] = { PORT_MIX_C, PORT_MIX_B, PORT_MIX_A };
 
-    for (int i = 0; i < N_PATH_HOPS; i++) {
-        aes_key_t master = {0};
-        uint8_t   hint[HINT_BYTES]      = {0};
-        uint8_t   node_pub[EC_PUBKEY_LEN] = {0};
+    /* Telescoped through MNc, see production client.c. */
+    {
+        aes_key_t masters[N_PATH_HOPS];
+        uint8_t   hints[N_PATH_HOPS][HINT_BYTES];
+        uint8_t   node_pubs[N_PATH_HOPS][EC_PUBKEY_LEN];
 
-        if (ecdhe_with_node(LOCALHOST, recv_ports[i], SESSION_ROLE_B,
-                            &master, hint, node_pub) != 0) {
-            char err[64];
-            snprintf(err, sizeof(err), "ECDHE failed recv hop %d (port %u)",
-                     i, recv_ports[i]);
-            log_err(err); return -1;
+        if (ecdhe_telescoped_path(recv_ports, N_PATH_HOPS, SESSION_ROLE_B,
+                                  masters, hints, node_pubs) != 0) {
+            log_err("telescoped ECDHE failed on receiving path"); return -1;
         }
-        derive_hop_recv(&master, &g_state.recv_hops[i], hint);
+        for (int i = 0; i < N_PATH_HOPS; i++) {
+            derive_hop_recv(&masters[i], &g_state.recv_hops[i]);
 
-        /* Store MNc pubkey and addr for embedding in outbound payload */
-        if (i == 0) {
-            memcpy(g_state.mnc_pubkey, node_pub, EC_PUBKEY_LEN);
-            make_addr_bytes(LOCALHOST, PORT_MIX_C, g_state.mnc_addr);
+            /* Store MNc pubkey and addr for embedding in outbound payload */
+            if (i == 0) {
+                memcpy(g_state.mnc_pubkey, node_pubs[0], EC_PUBKEY_LEN);
+                make_addr_bytes(LOCALHOST, PORT_MIX_C, g_state.mnc_addr);
+            }
+
+            char logbuf[64];
+            snprintf(logbuf, sizeof(logbuf),
+                     "  receiving hop %d ready (port %u)", i, recv_ports[i]);
+            log_msg(logbuf);
         }
-
-        char logbuf[64];
-        snprintf(logbuf, sizeof(logbuf),
-                 "  receiving hop %d ready (port %u)", i, recv_ports[i]);
-        log_msg(logbuf);
+        explicit_bzero(masters, sizeof(masters));
     }
 
     /* E2E session with SG via path B -> K_R-SG-B */
@@ -245,13 +334,13 @@ static int build_paths(void) {
         log_msg("  K_R-SG-B established");
     }
 
-    /* Build Client address bytes (127.0.0.1:CLIENT_RESPONSE_PORT) */
-    make_addr_bytes(LOCALHOST, CLIENT_RESPONSE_PORT, g_state.client_addr);
+    /* Build Client address bytes (127.0.0.1:client_response_port()) */
+    make_addr_bytes(LOCALHOST, client_response_port(), g_state.client_addr);
 
     /* Build return header:
      *   addrs[0] = MNb addr  (MNc learns this after peeling)
      *   addrs[1] = MNa addr  (MNb learns this)
-     *   addrs[2] = Client addr (MNa learns this -- final delivery)
+     *   addrs[2] = Client addr (MNa learns this, final delivery)
      *   enc keys[0] = SK_R-MNc, [1] = SK_R-MNb, [2] = SK_R-MNa
      */
     uint8_t addrs[N_PATH_HOPS][ADDR_BYTES];
@@ -259,12 +348,31 @@ static int build_paths(void) {
     make_addr_bytes(LOCALHOST, PORT_MIX_A, addrs[1]);
     memcpy(addrs[2], g_state.client_addr, ADDR_BYTES);
 
+    /* addrs/enc_keys/mac_keys are session-static; stash addrs for
+     * build_spare_return_header() below (M-c) to reuse without
+     * re-deriving them from scratch for every cover packet. */
+    memcpy(g_state.return_addrs, addrs, sizeof(addrs));
+
     aes_key_t enc_keys[N_PATH_HOPS], mac_keys[N_PATH_HOPS];
     uint8_t   hints[N_PATH_HOPS][HINT_BYTES];
     for (int i = 0; i < N_PATH_HOPS; i++) {
         enc_keys[i] = g_state.recv_hops[i].header_enc_key;
         mac_keys[i] = g_state.recv_hops[i].header_mac_key;
-        memcpy(hints[i], g_state.recv_hops[i].hint, HINT_BYTES);
+        /* Constant counter=0,
+         * matching derive_hop_send()'s deliberate static-hint policy for
+         * this benchmark binary, see its comment. This binary never
+         * rotates the return-path hint per request the way client.c
+         * does; the spare cover headers (below) deliberately keep the
+         * same policy (also counter=0) rather than reintroducing
+         * rotation here, since packet_build_return_header() draws a
+         * fresh RAND_bytes nonce internally on every call regardless of
+         * the hint counter, that alone is enough for each spare header
+         * to be distinct (and pass replay checks) while still matching
+         * this binary's single, flat, non-windowed session hint at every
+         * return hop (mix_node_instrumented.c's session_find(), unlike
+         * production mix_node.c, has no rotating-hint window to match
+         * against). */
+        packet_derive_hop_hint(&g_state.recv_hops[i].hint_seed, 0, hints[i]);
     }
 
     if (packet_build_return_header(enc_keys, mac_keys, hints,
@@ -278,16 +386,33 @@ static int build_paths(void) {
     return 0;
 }
 
+/* M-c: builds one "spare" return header for the SG to fire autonomously
+ * as an indistinguishable return-path cover packet, see client.c's
+ * identical function and this file's build_paths() comment on why
+ * counter=0 (not a rotating counter) is correct here. Does not touch
+ * g_state.return_hdr (reserved for the real path). */
+static int build_spare_return_header(return_header_t *out) {
+    aes_key_t enc_keys[N_PATH_HOPS], mac_keys[N_PATH_HOPS];
+    uint8_t   hints[N_PATH_HOPS][HINT_BYTES];
+    for (int i = 0; i < N_PATH_HOPS; i++) {
+        enc_keys[i] = g_state.recv_hops[i].header_enc_key;
+        mac_keys[i] = g_state.recv_hops[i].header_mac_key;
+        packet_derive_hop_hint(&g_state.recv_hops[i].hint_seed, 0, hints[i]);
+    }
+    return packet_build_return_header(enc_keys, mac_keys, hints,
+                                      g_state.return_addrs, out);
+}
 
-/* ── Response listener thread ───────────────────────────────────────────── */
+
+/* Response listener thread */
 static DWORD WINAPI response_listener(LPVOID arg) {
     (void)arg;
-    SOCKET srv = net_listen(CLIENT_RESPONSE_PORT);
+    SOCKET srv = net_listen(client_response_port());
     if (srv == INVALID_SOCKET) { log_err("response listener bind failed"); return 1; }
 
     char logbuf[64];
     snprintf(logbuf, sizeof(logbuf),
-             "response listener on port %u", CLIENT_RESPONSE_PORT);
+             "response listener on port %u", client_response_port());
     log_msg(logbuf);
 
     while (1) {
@@ -296,25 +421,34 @@ static DWORD WINAPI response_listener(LPVOID arg) {
 
         uint8_t wire[WIRE_PACKET_SIZE];
         if (net_recv_all(conn, wire, WIRE_PACKET_SIZE) == 0) {
+            /* P5: MNa->Client return-inbound link total, real+cover
+             * undifferentiated: see measure.h's comment. Distinct from
+             * P3's link_bytes.csv, which only ever counted this client's
+             * own OUTBOUND (forward) send side. */
+            measure_hop_bytes((LONGLONG)WIRE_PACKET_SIZE);
             /* Validate: try to decrypt before signalling.
              * Cover packets are random and will fail GCM auth.            */
             size_t enc_len = (size_t)((wire[RETURN_HEADER_SIZE] << 8) |
                                        wire[RETURN_HEADER_SIZE+1]);
-            /* Real responses are small -- filter obvious random cover packets */
+            /* Real responses are small, filter obvious random cover packets */
             if (enc_len >= GCM_OVERHEAD && enc_len <= 512) {
                 uint8_t tmp[RETURN_PAYLOAD_SIZE];
                 int n = crypto_aes_decrypt(&g_state.k_r_sg_b,
                                            wire + RETURN_HEADER_SIZE + 2,
                                            enc_len, tmp, sizeof(tmp));
-                if (n > 0) {
-                    /* Real response -- signal */
+                /* M-c: see client.c's identical comment, leading
+                 * plaintext flags byte, not GCM success/failure, is what
+                 * distinguishes real from cover now. */
+                if (n > 0 && (size_t)n >= 1 && tmp[0] == PKT_REAL) {
+                    /* Real response, signal */
                     EnterCriticalSection(&g_resp_lock);
                     memcpy(g_resp_buf, wire, WIRE_PACKET_SIZE);
                     g_resp_ready = 1;
                     SetEvent(g_resp_event);
                     LeaveCriticalSection(&g_resp_lock);
                 }
-                /* else: cover packet -- silently discard */
+                /* else: cover packet (GCM failure, or GCM success with
+                 * PKT_DUMMY flag), silently discard either way. */
             }
         }
         net_close(conn);
@@ -324,19 +458,67 @@ static DWORD WINAPI response_listener(LPVOID arg) {
 }
 
 
-/* ── Cover traffic (Phase 8) ────────────────────────────────────────────── */
+/* Cover traffic (Phase 8) */
 
-/* Poisson inter-packet interval in ms (rate = DUMMY_INTERVAL_MS mean)     */
+/* libc rand()/srand() is process-global, non-reentrant state; this file
+ * runs the Poisson dispatch clock (poisson_interval_ms) and, in hardened
+ * builds, the real-arrival clock (real_interval_ms) on two DIFFERENT
+ * threads with no coordination, concurrent unsynchronized rand() calls
+ * are a data race, and most callers of this class of bug in mix_node.c
+ * never called srand() at all. RAND_bytes is thread-safe and needs no
+ * seeding: use it here too. */
+static double uniform01(void) {
+    uint32_t r;
+    if (RAND_bytes((uint8_t *)&r, sizeof(r)) != 1) r = 1;
+    return ((double)r + 1.0) / (4294967296.0 + 1.0);
+}
+
+/* This client's persistent rate-tier mean, drawn
+ * once by rate_tier_init() (called from main()) and held fixed thereafter
+ *, see common/config.h's RATE_TIER_INTERVALS_MS comment and client.c's
+ * identical mechanism, which this mirrors. Initialized to the un-tiered
+ * legacy constant so any call before rate_tier_init() runs still behaves
+ * sanely rather than reading garbage. */
+static double g_rate_tier_interval_ms = DUMMY_INTERVAL_MS;
+
+/* Persists this client identity's rate tier the same way client.c does
+ * (client_rate_tier.txt in cwd, drawn once from real entropy, reused
+ * verbatim on every later run). */
+static int rate_tier_init(void) {
+    static const double kTierMs[N_RATE_TIERS] = RATE_TIER_INTERVALS_MS;
+    const char *path = "client_rate_tier.txt";
+
+    int tier = -1;
+    FILE *f = fopen(path, "r");
+    if (f) {
+        if (fscanf(f, "%d", &tier) != 1 || tier < 0 || tier >= N_RATE_TIERS)
+            tier = -1;
+        fclose(f);
+    }
+    if (tier < 0) {
+        uint32_t r;
+        if (RAND_bytes((uint8_t *)&r, sizeof(r)) != 1) r = 0;
+        tier = (int)(r % N_RATE_TIERS);
+        f = fopen(path, "w");
+        if (f) { fprintf(f, "%d\n", tier); fclose(f); }
+    }
+    g_rate_tier_interval_ms = kTierMs[tier];
+    return 0;
+}
+
+/* Poisson inter-packet interval in ms (rate = this client's assigned
+ * rate-tier mean, see g_rate_tier_interval_ms above, rather than a
+ * single network-wide mean shared by every client). */
 static DWORD poisson_interval_ms(void) {
     /* Inverse CDF of Exponential: -mean * ln(U), U ~ Uniform(0,1)        */
-    double u = (rand() + 1.0) / (RAND_MAX + 2.0);  /* avoid 0 and 1      */
-    double interval = -DUMMY_INTERVAL_MS * log(u);
+    double u = uniform01();
+    double interval = -g_rate_tier_interval_ms * log(u);
     if (interval < 10.0)  interval = 10.0;
     if (interval > 1000.0) interval = 1000.0;
     return (DWORD)interval;
 }
 
-/* ── Step 8.6: Probabilistic slot replacement ────────────────────────────
+/* Step 8.6: Probabilistic slot replacement
  *
  * Each Poisson slot, draw U ~ Uniform(0,1).
  * If U < g_load_fraction  -> send real packet (pre-built by crypto_thread).
@@ -353,7 +535,8 @@ static int send_get(const char *key);   /* forward declaration */
 static _Atomic double g_load_fraction = 0.0;
 
 /* Ring buffer per packet type: crypto_thread pre-builds, cover_thread consumes
- * Depth 8 absorbs Sphinx build jitter (~2-5ms each) at the Poisson clock     */
+ * Depth 64 absorbs Sphinx build jitter (~2-5ms each) at the Poisson clock
+ * (usable capacity is 63, pq_free() reserves one sentinel slot)          */
 #define PKT_QUEUE_DEPTH 64
 typedef struct {
     wire_packet_t buf[PKT_QUEUE_DEPTH];
@@ -386,7 +569,56 @@ static int pq_pop(pkt_queue_t *q, wire_packet_t *out) {
     return 0;
 }
 
-/* ── crypto_thread: keep buffer stocked ──────────────────────────────────────── */
+/* Builds one real (GET "bench") packet and pushes it to g_real_q if there is
+ * room. Shared by crypto_thread (legacy mode, unconditional top-up) and
+ * real_arrival_thread (hardened mode, load-scaled rate) so both modes
+ * build the exact same packet. */
+static void build_and_push_real(void) {
+    const char *key = "bench";
+    size_t klen = strlen(key);
+    uint8_t payload[MAX_INNER_PAYLOAD];
+    memset(payload, 0, sizeof(payload));
+    size_t poff = 0;
+    memcpy(payload+poff, g_state.mnc_pubkey,  EC_PUBKEY_LEN);      poff+=EC_PUBKEY_LEN;
+    memcpy(payload+poff, g_state.mnc_addr,    ADDR_BYTES);         poff+=ADDR_BYTES;
+
+    wire_packet_t pkt = {0};
+    EnterCriticalSection(&g_send_path_lock);
+    /* Pre-existing bug fix, found while verifying M-c end-to-end: this
+     * used to embed g_state.return_hdr as built once at setup and never
+     * refreshed, so every real GET after the first carried the byte-
+     * identical return header, including its nonces, which
+     * packet_build_return_header() only randomizes when actually called.
+     * The return-path replay detector at the first return hop correctly
+     * rejected every one of those as a replay, meaning this benchmark
+     * client could never complete more than one real round trip and
+     * nothing previously caught it (see mix_node_instrumented.c's
+     * handle_extend() comment for why). Rebuilding here, under the same
+     * lock used for the forward path, gives a fresh nonce per request
+     * (the hint stays HMAC(hint_seed, 0), deliberately unchanged, see
+     * build_paths()'s comment, so this hop's flat, non-windowed
+     * session lookup still matches). */
+    if (build_spare_return_header(&g_state.return_hdr) != 0) {
+        LeaveCriticalSection(&g_send_path_lock); return;
+    }
+    memcpy(payload+poff, &g_state.return_hdr, RETURN_HEADER_SIZE); poff+=RETURN_HEADER_SIZE;
+    payload[poff++] = TYPE_GET;
+    payload[poff++] = (uint8_t)klen;
+    memcpy(payload+poff, key, klen); poff+=klen;
+    if (poff > MAX_INNER_PAYLOAD) { LeaveCriticalSection(&g_send_path_lock); return; }
+
+    int ok = (packet_sphinx_build(&g_state.send_path, payload, (uint16_t)poff,
+                                  PKT_REAL|PKT_DEST_SERVICE, 0, &pkt) == 0);
+    LeaveCriticalSection(&g_send_path_lock);
+    if (!ok) return;
+
+    EnterCriticalSection(&g_pkt_lock);
+    pq_push(&g_real_q, &pkt);   /* drop silently if full, see
+                                  * real_arrival_thread()'s comment */
+    LeaveCriticalSection(&g_pkt_lock);
+}
+
+/* crypto_thread: keep buffer stocked */
 static DWORD WINAPI crypto_thread(LPVOID arg) {
     (void)arg;
     while (1) {
@@ -399,39 +631,35 @@ static DWORD WINAPI crypto_thread(LPVOID arg) {
 
         if (real_free == 0 && cover_free == 0) { Sleep(1); continue; }
 
-        /* Build one real packet */
-        if (real_free > 0) {
-            const char *key = "bench";
-            size_t klen = strlen(key);
-            uint8_t payload[MAX_INNER_PAYLOAD];
-            memset(payload, 0, sizeof(payload));
-            size_t poff = 0;
-            memcpy(payload+poff, g_state.mnc_pubkey,  EC_PUBKEY_LEN);      poff+=EC_PUBKEY_LEN;
-            memcpy(payload+poff, g_state.mnc_addr,    ADDR_BYTES);         poff+=ADDR_BYTES;
-            memcpy(payload+poff, &g_state.return_hdr, RETURN_HEADER_SIZE); poff+=RETURN_HEADER_SIZE;
-            payload[poff++] = TYPE_GET;
-            payload[poff++] = (uint8_t)klen;
-            memcpy(payload+poff, key, klen); poff+=klen;
-            if (poff <= MAX_INNER_PAYLOAD) {
-                wire_packet_t pkt = {0};
-                EnterCriticalSection(&g_send_path_lock);
-                int ok = (packet_sphinx_build(&g_state.send_path, payload, (uint16_t)poff,
-                                              PKT_REAL|PKT_DEST_SERVICE, 0, &pkt) == 0);
-                LeaveCriticalSection(&g_send_path_lock);
-                if (ok) {
-                    EnterCriticalSection(&g_pkt_lock);
-                    pq_push(&g_real_q, &pkt);
-                    LeaveCriticalSection(&g_pkt_lock);
-                }
-            }
-        }
+#ifndef ASN_LOOPIX_MIXING
+        /* Legacy mode: keep g_real_q topped up unconditionally, the
+         * Bernoulli-slot dispatch clock below decides the real/cover mix.
+         * Under ASN_LOOPIX_MIXING, real_arrival_thread() builds real
+         * packets itself at a load-scaled rate instead, so this thread
+         * only tops up cover in that mode. */
+        if (real_free > 0) build_and_push_real();
+#endif
 
-        /* Build one cover packet */
+        /* Build one cover packet. M-c: carries a spare return header
+         * (see client.c's build_outbound_cover_with_spare_return()) so
+         * the SG can fire an indistinguishable return-path cover packet
+         *, instead of packet_sphinx_dummy()'s pure-random payload. */
         if (cover_free > 0) {
             wire_packet_t pkt = {0};
-            EnterCriticalSection(&g_send_path_lock);
-            int ok = (packet_sphinx_dummy(&g_state.send_path, &pkt) == 0);
-            LeaveCriticalSection(&g_send_path_lock);
+            return_header_t spare = {0};
+            int ok = 0;
+            if (build_spare_return_header(&spare) == 0) {
+                uint8_t payload[MAX_INNER_PAYLOAD];
+                if (RAND_bytes(payload, MAX_INNER_PAYLOAD) == 1) {
+                    memcpy(payload, &spare, RETURN_HEADER_SIZE);
+                    EnterCriticalSection(&g_send_path_lock);
+                    ok = (packet_sphinx_build(&g_state.send_path, payload,
+                                              MAX_INNER_PAYLOAD,
+                                              PKT_DUMMY | PKT_DEST_SERVICE,
+                                              0, &pkt) == 0);
+                    LeaveCriticalSection(&g_send_path_lock);
+                }
+            }
             if (ok) {
                 EnterCriticalSection(&g_pkt_lock);
                 pq_push(&g_cover_q, &pkt);
@@ -442,15 +670,17 @@ static DWORD WINAPI crypto_thread(LPVOID arg) {
     return 0;
 }
 
-/* ── outbound_cover_thread: Poisson clock, probabilistic real/cover decision ── */
+/* outbound_cover_thread: Poisson clock, probabilistic real/cover decision */
 static volatile int g_slots_total = 0;
 static volatile int g_slots_real  = 0;
 static volatile int g_slots_cover = 0;
+#ifndef ASN_LOOPIX_MIXING
 static volatile int g_slots_fallback = 0;
+#endif
 
+#ifndef ASN_LOOPIX_MIXING
 static DWORD WINAPI outbound_cover_thread(LPVOID arg) {
     (void)arg;
-    srand((unsigned)GetTickCount());
 
     while (1) {
         Sleep(poisson_interval_ms());
@@ -458,7 +688,7 @@ static DWORD WINAPI outbound_cover_thread(LPVOID arg) {
 
         g_slots_total++;
 
-        double u = (rand() + 1.0) / (RAND_MAX + 2.0);
+        double u = uniform01();
         double load = atomic_load(&g_load_fraction);
         int want_real = (u < load);
 
@@ -519,8 +749,96 @@ static DWORD WINAPI outbound_cover_thread(LPVOID arg) {
     }
     return 0;
 }
+#else
+/* Loopix-style hardened harness: a single shared
+ * Poisson dispatch clock (same poisson_interval_ms() as legacy mode)
+ * drains g_real_q preferentially and falls back to g_cover_q, so the
+ * aggregate observable send rate is bounded by that one fixed-rate
+ * clock, not additive across two independent clocks. Matches
+ * production client.c/sender.c's
+ * mailbox-priority dispatch (real always wins the slot when available).
+ *
+ * real_arrival_thread() below only makes real packets AVAILABLE (at a
+ * load-scaled Poisson rate, REAL_MAX_PPS matching
+ * eval2/scripts/coverleak_run.py's R_MAX_PPS), it never talks to the
+ * network directly. Actual sending is done exclusively by the shared
+ * dispatch clock (outbound_cover_thread, unchanged name for minimal
+ * diff against legacy mode). At high load, real arrivals can outpace
+ * the fixed dispatch clock's drain rate (~1000/DUMMY_INTERVAL_MS pps);
+ * g_real_q then backs up (bounded depth 64, oldest-preserved, newest
+ * silently dropped once full) rather than the clock speeding up, this
+ * is the honest, expected cost of a rate-bounded shared clock, not a
+ * bug, and mirrors Loopix's own known cover/loop-rate provisioning
+ * trade-off. */
+#define REAL_MAX_PPS 30.0
 
-/* ── Send GET request ───────────────────────────────────────────────────── */
+static DWORD real_interval_ms(void) {
+    double load = atomic_load(&g_load_fraction);
+    if (load <= 0.0) return 1000;   /* idle poll interval, no real traffic requested */
+    double rate = load * REAL_MAX_PPS;
+    double u = uniform01();
+    double iv = -1000.0 / rate * log(u);
+    if (iv < 1.0)    iv = 1.0;
+    if (iv > 2000.0) iv = 2000.0;
+    return (DWORD)iv;
+}
+
+static DWORD WINAPI real_arrival_thread(LPVOID arg) {
+    (void)arg;
+    while (1) {
+        Sleep(real_interval_ms());
+        if (!g_state.ready) continue;
+        if (atomic_load(&g_load_fraction) <= 0.0) continue;
+        build_and_push_real();
+    }
+    return 0;
+}
+
+static DWORD WINAPI outbound_cover_thread(LPVOID arg) {
+    (void)arg;
+    while (1) {
+        Sleep(poisson_interval_ms());   /* the one shared dispatch clock */
+        if (!g_state.ready) continue;
+
+        g_slots_total++;
+
+        wire_packet_t pkt = {0};
+        int used_real = 0;
+        EnterCriticalSection(&g_pkt_lock);
+        used_real = (pq_pop(&g_real_q, &pkt) == 0);
+        LeaveCriticalSection(&g_pkt_lock);
+
+        if (!used_real) {
+            EnterCriticalSection(&g_pkt_lock);
+            int got_cover = (pq_pop(&g_cover_q, &pkt) == 0);
+            LeaveCriticalSection(&g_pkt_lock);
+            if (!got_cover) continue;   /* both queues empty, rare, skip this slot */
+        }
+
+        if (used_real) g_slots_real++;
+        else           g_slots_cover++;
+
+        SOCKET s = net_connect(LOCALHOST, PORT_MIX_1);
+        if (s == INVALID_SOCKET) continue;
+        uint8_t mode = MODE_DATA;
+        net_send_all(s, &mode, 1);
+        net_send_all(s, pkt.data, WIRE_PACKET_SIZE);
+        if (used_real) measure_link_bytes(0, WIRE_PACKET_SIZE);
+        else            measure_link_bytes(1, WIRE_PACKET_SIZE);
+        net_close(s);
+
+        if (g_slots_total % 1000 == 0) {
+            printf("[STATS] total=%d real=%d cover=%d load=%.3f\n",
+                   g_slots_total, g_slots_real, g_slots_cover,
+                   atomic_load(&g_load_fraction));
+            fflush(stdout);
+        }
+    }
+    return 0;
+}
+#endif
+
+/* Send GET request */
 static int send_get(const char *key) {
     if (!g_state.ready) { log_err("paths not ready"); return -1; }
 
@@ -529,7 +847,7 @@ static int send_get(const char *key) {
 
     /* Build inner payload:
      * [flags(1)][payload_len(2)][MNc_pubkey(65)][MNc_addr(6)]
-     * [return_header(162)][TYPE_GET(1)][klen(1)][key]           */
+     * [return_header(174)][TYPE_GET(1)][klen(1)][key]           */
     uint8_t inner[MAX_INNER_PAYLOAD + INNER_HDR_BYTES + RETURN_HDR_IN_PAYLOAD];
     memset(inner, 0, sizeof(inner));
     /* App data section */
@@ -595,7 +913,7 @@ static int send_get(const char *key) {
     return 0;
 }
 
-/* ── Wait for and decrypt response ─────────────────────────────────────── */
+/* Wait for and decrypt response */
 static int wait_response(uint8_t *out, uint16_t *out_len, DWORD timeout_ms) {
     if (WaitForSingleObject(g_resp_event, timeout_ms) != WAIT_OBJECT_0) {
         log_err("response timeout"); return -1;
@@ -609,7 +927,7 @@ static int wait_response(uint8_t *out, uint16_t *out_len, DWORD timeout_ms) {
     LeaveCriticalSection(&g_resp_lock);
 
     /* Return packet layout:
-     * [return_header(162)][enc_K_R-SG-B(response)]
+     * [return_header(174)][enc_K_R-SG-B(response)]
      * After MNa peeled the last header block, return_header is all zeros.
      * The response payload starts at RETURN_HEADER_SIZE.                 */
     /* Read enc_len from first 2 bytes of payload section */
@@ -626,25 +944,30 @@ static int wait_response(uint8_t *out, uint16_t *out_len, DWORD timeout_ms) {
                                enc_resp, enc_len,
                                plain, sizeof(plain));
     if (n < 0) { log_err("response decrypt failed"); return -1; }
+    if (n < 1) { log_err("response too short (no flags byte)"); return -1; }
 
+    /* M-c: skip the leading flags byte, see client.c's wait_response()
+     * for the identical change. response_listener() already filtered to
+     * PKT_REAL before signalling this event. */
+    n -= 1;
     if ((size_t)n > MAX_INNER_PAYLOAD) n = MAX_INNER_PAYLOAD;
-    memcpy(out, plain, (size_t)n);
+    memcpy(out, plain + 1, (size_t)n);
     *out_len = (uint16_t)n;
     return 0;
 }
 
 
-/* ── Send session setup packet to SG ───────────────────────────────────── */
+/* Send session setup packet to SG */
 static int send_setup(void) {
-    /* Compute binding tag: HMAC(K_R-SG-A XOR K_R-SG-B, "binding") */
-    uint8_t xor_key[AES_KEY_LEN];
-    for (int i = 0; i < AES_KEY_LEN; i++)
-        xor_key[i] = g_state.k_r_sg_a.key[i] ^ g_state.k_r_sg_b.key[i];
-
+    /* See production client.c's matching comment.
+     * Setup-phase only, not part of any timed benchmark loop, unlike
+     * this binary's deliberately-static per-packet hint scheme, which
+     * Figure 2/3/Table 2 do measure. */
     uint8_t binding_tag[MAC_BYTES];
-    packet_hmac(xor_key, AES_KEY_LEN,
-                (uint8_t *)LABEL_BINDING, strlen(LABEL_BINDING),
-                binding_tag);
+    if (packet_derive_binding_tag(&g_state.k_r_sg_a, &g_state.k_r_sg_b,
+                                  binding_tag) != 0) {
+        log_err("binding tag derivation failed"); return -1;
+    }
 
     /* Build setup payload */
     uint8_t payload[MAX_INNER_PAYLOAD];
@@ -653,13 +976,11 @@ static int send_setup(void) {
 
     payload[off++] = TYPE_SETUP;
 
-    /* SK_R-MN1, MN2, MN3 (sending path blind keys) */
-    for (int i = 0; i < N_PATH_HOPS; i++) {
-        memcpy(payload + off, g_state.send_path.hops[i].blind_key.key, AES_KEY_LEN);
-        off += AES_KEY_LEN;
-    }
+    /* Sending-path blind keys (SK_R-MN1/MN2/MN3) are deliberately NOT
+     * sent to the SG, it never reads them, only recv_blind[] below.
+     * See production client.c::send_setup(). */
 
-    /* SK_R-MNa, MNb, MNc (receiving path blind keys) -- [0]=MNc,[1]=MNb,[2]=MNa */
+    /* SK_R-MNa, MNb, MNc (receiving path blind keys): [0]=MNc,[1]=MNb,[2]=MNa */
     for (int i = 0; i < N_PATH_HOPS; i++) {
         memcpy(payload + off, g_state.recv_hops[i].blind_key.key, AES_KEY_LEN);
         off += AES_KEY_LEN;
@@ -691,7 +1012,7 @@ static int send_setup(void) {
     return 0;
 }
 
-/* ── Interactive loop ───────────────────────────────────────────────────── */
+/* Interactive loop */
 static void run_interactive(void) {
     printf("\n+==========================================+\n");
     printf("|   Anon-Sec-Net v2 Client Ready           |\n");
@@ -737,7 +1058,7 @@ static void run_interactive(void) {
     }
 }
 
-/* ── main ───────────────────────────────────────────────────────────────── */
+/* main */
 int main(void) {
     SetConsoleOutputCP(65001);
     InitializeCriticalSection(&g_resp_lock);
@@ -745,14 +1066,15 @@ int main(void) {
     InitializeCriticalSection(&g_pkt_lock);
     g_resp_event = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (!g_resp_event) return 1;
-    measure_init(MEASURE_P2 | MEASURE_P3);  /* P2: session timer | P3: link bytes */
+    measure_init(MEASURE_P2 | MEASURE_P3 | MEASURE_P5);  /* P2: session timer | P3: outbound link bytes | P5: inbound (return) link bytes */
 
     if (net_init() != 0) return 1;
     CreateDirectoryA(PUBKEY_DIR, NULL);
+    rate_tier_init();
     log_msg("Anon-Sec-Net v2 client starting...");
 
     if (build_paths() != 0) {
-        log_err("path build failed — ensure all mix nodes and SG are running");
+        log_err("path build failed, ensure all mix nodes and SG are running");
         net_cleanup(); return 1;
     }
 
@@ -766,6 +1088,13 @@ int main(void) {
 
     HANDLE ct = CreateThread(NULL, 0, outbound_cover_thread, NULL, 0, NULL);
     if (ct) CloseHandle(ct);
+#ifdef ASN_LOOPIX_MIXING
+    /* Hardened mode: real_arrival_thread only makes real packets
+     * available (load-scaled rate); outbound_cover_thread above is the
+     * single shared clock that actually sends. */
+    HANDLE rt = CreateThread(NULL, 0, real_arrival_thread, NULL, 0, NULL);
+    if (rt) CloseHandle(rt);
+#endif
 
     /* Crypto workers: keep g_real_q / g_cover_q stocked */
     for (int i = 0; i < 4; i++) {
@@ -775,9 +1104,9 @@ int main(void) {
 
     Sleep(200);
 
-    /* ── Main thread: stdin command loop ──────────────────────────────────
+ /* Main thread: stdin command loop
      * Single reader (no race with any other thread).  This is the
-     * benchmark client -- there is no interactive GET prompt.
+     * benchmark client, there is no interactive GET prompt.
      *   SET_RATE <0.0 .. 1.0>   set Bernoulli load fraction
      *   quit                    exit cleanly                              */
     printf("[Client] Ready for SET_RATE commands\n"); fflush(stdout);
@@ -795,14 +1124,11 @@ int main(void) {
             if (frac > 1.0) frac = 1.0;
             atomic_store(&g_load_fraction, frac);
             printf("[RATE] %.3f\n", frac); fflush(stdout);
-        }
-        if (strcmp(line, "quit") == 0) {
-    measure_flush();
-    Sleep(50);   // ensure file write completes
-    break;
-}
-        
-        else {
+        } else if (strcmp(line, "quit") == 0) {
+            measure_flush();
+            Sleep(50);   // ensure file write completes
+            break;
+        } else {
             printf("[Client] unknown: %s\n", line); fflush(stdout);
         }
     }

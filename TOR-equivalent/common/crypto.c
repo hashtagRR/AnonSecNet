@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* -- Internal ------------------------------------------------------------- */
+/*, Internal ------------------------------------------------------------- */
 
 static void ossl_err(const char *where) {
     unsigned long e;
@@ -19,7 +19,7 @@ static void ossl_err(const char *where) {
         fprintf(stderr, "  %s\n", ERR_error_string(e, NULL));
 }
 
-/* -- ECDHE ---------------------------------------------------------------- */
+/*, ECDHE ---------------------------------------------------------------- */
 
 int crypto_ecdh_keygen(ecdh_keypair_t *kp) {
     if (!kp) return -1;
@@ -164,7 +164,7 @@ int crypto_pubkey_load(uint8_t out[EC_PUBKEY_LEN], const char *path) {
     return ok ? 0 : -1;
 }
 
-/* -- AES-256-GCM ---------------------------------------------------------- */
+/*, AES-256-GCM ---------------------------------------------------------- */
 
 int crypto_aes_encrypt(const aes_key_t *key,
                        const uint8_t   *plaintext,  size_t plaintext_len,
@@ -245,7 +245,7 @@ done:
     return ret;
 }
 
-/* -- Utilities ------------------------------------------------------------ */
+/*, Utilities ------------------------------------------------------------ */
 
 void crypto_hexdump(const char *label, const uint8_t *data, size_t len) {
     fprintf(stderr, "[%s] %zu bytes:\n  ", label, len);

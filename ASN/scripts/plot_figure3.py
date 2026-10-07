@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-plot_figure3.py  --  Anon-Sec-Net v2  Figure 3: Path Construction Time
+plot_figure3.py: Anon-Sec-Net v2  Figure 3: Path Construction Time
 
-Reads figure3_path_construction.csv (and optionally tor_session_setup.csv) and produces
-figure3_path_construction.pdf/.png as a grouped bar chart with 95% CI.
+Reads the ASN path-construction CSV (and optionally the Tor-equivalent one)
+and produces figure3_path_construction.pdf/.png as a grouped bar chart with
+95% CI. The defaults are the curated files in ../results/. A fresh run of
+tests/ASN/sweep_figure3.py writes figure3_asn.csv, and the Tor-equivalent
+instrumented client writes tor_session_setup.csv; both can be passed with
+--asn-csv and --tor-csv.
 
 Usage:
-    python plot_figure3.py [--asn-csv figure3_path_construction.csv]
-                           [--tor-csv tor_session_setup.csv]
+    python plot_figure3.py [--asn-csv ../results/figure3_path_construction_asn.csv]
+                           [--tor-csv ../results/figure3_path_construction_tor.csv]
                            [--out-dir .]
 """
 
@@ -82,7 +86,7 @@ def read_summary_csv(path):
 
 
 def read_plain_csv(path):
-    """Read a plain single-column float CSV (e.g. tor_session_setup.csv)."""
+    """Read the float values of a CSV, skipping comments, headers and summary rows."""
     values = []
     if not os.path.exists(path):
         return values
@@ -100,8 +104,8 @@ def read_plain_csv(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--asn-csv", default="figure3_path_construction.csv")
-    parser.add_argument("--tor-csv", default="tor_session_setup.csv")
+    parser.add_argument("--asn-csv", default="../results/figure3_path_construction_asn.csv")
+    parser.add_argument("--tor-csv", default="../results/figure3_path_construction_tor.csv")
     parser.add_argument("--out-dir", default=".")
     args = parser.parse_args()
 
@@ -145,16 +149,22 @@ def main():
         error_kw={"elinewidth": 1.5},
     )
 
-    # annotate mean ± CI
-    for i, (m, hw) in enumerate(zip(means, cis)):
-        ax.text(x[i], m + hw + 0.5, f"{m:.1f}±{hw:.1f} ms",
+    # Headroom: annotations must clear both the CI cap and the p95 marker
+    # (whichever is taller), or they overlap the title/each other when the
+    # error bars are small relative to the mean (e.g. tight CIs at low ms).
+    top_needed = max(max(m + hw, p95) for m, hw, p95 in zip(means, cis, p95s))
+    ax.set_ylim(0, top_needed * 1.22)
+
+    # annotate mean ± CI, placed above whichever is higher: the CI cap or p95
+    for i, (m, hw, p95) in enumerate(zip(means, cis, p95s)):
+        label_y = max(m + hw, p95) + top_needed * 0.05
+        ax.text(x[i], label_y, f"{m:.1f}±{hw:.1f} ms",
                 ha="center", va="bottom", fontsize=8)
 
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[p] for p in protos], fontsize=10)
     ax.set_ylabel("Session setup time (ms)", fontsize=11)
     ax.set_title("Figure 3: Path Construction Time", fontsize=11)
-    ax.set_ylim(bottom=0)
     ax.grid(True, axis="y", linestyle="--", alpha=0.4)
 
     # Add p5/p95 whiskers as text

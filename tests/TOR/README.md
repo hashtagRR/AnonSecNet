@@ -1,4 +1,4 @@
-# tests/TOR — Tor-Equivalent Benchmark Programs
+# tests/TOR: Tor-Equivalent Benchmark Programs
 
 Standalone benchmark programs for the Tor-equivalent baseline. Most run entirely in-process (no live nodes needed) and produce the CSV data for the paper figures.
 
@@ -8,14 +8,19 @@ Standalone benchmark programs for the Tor-equivalent baseline. Most run entirely
 
 ### Benchmark programs
 
-| File | Figure/Table | Live nodes needed? | What it measures |
-|------|-------------|-------------------|-----------------|
-| `tor_bench_fig2_perhop.c` | Figure 5 | No | Per-hop AES-256-CTR decryption cost vs payload size |
-| `tor_bench_fig3_pathconstruction.c` | Figure 6 | No | 4 in-process P-256 ECDHE handshakes × 1000 iterations |
-| `tor_bench_fig4_anonymity.c` | Figure 3 | No | Monte Carlo de-anonymisation probability (f² and f³) |
-| `tor_bench_fig5_cover.c` | Figure 7 | No | Tor cover overhead = 0% rows for comparison with ASN |
-| `tor_bench_table2_throughput.c` | Table 7 | No | In-process cell processing throughput, N = 1–500 |
-| `bench.c` | — | Partial | Older combined harness; GCM model for Fig 2 (see note below) |
+File names are historical (`fig2`/`fig3`/etc.) and no longer match the
+paper's own Table/Figure numbering, which has shifted across revisions;
+what each program measures is stable even when the paper's numbering
+isn't.
+
+| File | Live nodes needed? | What it measures |
+|------|-------------------|-----------------|
+| `tor_bench_fig2_perhop.c` | No | Per-hop AES-256-CTR decryption cost vs payload size |
+| `tor_bench_fig3_pathconstruction.c` | No | 4 in-process P-256 ECDHE handshakes × 1000 iterations |
+| `tor_bench_fig4_anonymity.c` | No | Monte Carlo de-anonymisation probability (f² and f³) |
+| `tor_bench_fig5_cover.c` | No | Tor cover overhead = 0% rows for comparison with ASN |
+| `tor_bench_table2_throughput.c` | No | In-process cell processing throughput, N = 1-500 |
+| `bench.c` | Partial | Older combined harness; GCM model for per-hop cost (see note below) |
 
 ### Instrumented nodes (functional testing only)
 
@@ -27,7 +32,7 @@ Standalone benchmark programs for the Tor-equivalent baseline. Most run entirely
 
 ### Scripts
 
-`TOR_sweep_table2.py` — throughput sweep using live instrumented nodes.
+`TOR_sweep_table2.py`: throughput sweep using live instrumented nodes.
 
 ---
 
@@ -51,11 +56,12 @@ cd ../../TOR-equivalent
 make run_bench_tor
 ```
 
-Pre-collected results are already in [`../../TOR-equivalent/results/`](../../TOR-equivalent/results/).
+No pre-collected results are shipped in this repository. The commands
+above write their output CSVs into the current directory.
 
 ### Individually
 
-### Figure 5 — per-hop latency (no nodes needed)
+### Per-hop cryptographic processing latency (no nodes needed)
 
 ```bash
 tor_bench_fig2.exe > results_tor_fig2.csv
@@ -63,23 +69,23 @@ tor_bench_fig2.exe > results_tor_fig2.csv
 
 Measures AES-256-CTR decryption cost per relay cell at payload sizes 64 B to 64 KB. Real Tor uses AES-128-CTR (Tor spec §5.4.3); we use 256-bit keys throughout the codebase for consistency. The cost difference is negligible relative to the architectural comparison.
 
-### Figure 6 — path construction time (no nodes needed)
+### Path construction time (no nodes needed)
 
 ```bash
 tor_bench_fig3.exe > results_tor_fig3.csv
 ```
 
-Four in-process P-256 ECDHE handshakes (Guard + Middle + Exit + end-to-end), 1000 iterations. Expected median ~7.5 ms — roughly half ASN's 14.4 ms, consistent with 4 vs 8 handshakes. Does not include telescoping relay overhead (see Known Deviations in `../../TOR-equivalent/README.md`).
+Four in-process P-256 ECDHE handshakes (Guard + Middle + Exit + end-to-end), 1000 iterations. Expected median ~7.5 ms, roughly half ASN's 14.4 ms, consistent with 4 vs 8 handshakes. Does not include telescoping relay overhead (see Known Deviations in `../../TOR-equivalent/README.md`).
 
-### Figure 3 — anonymity set size (no nodes needed)
+### De-anonymisation probability: Monte Carlo validation (no nodes needed)
 
 ```bash
 tor_bench_fig4.exe > results_tor_fig4.csv
 ```
 
-Monte Carlo: 10,000 sessions per f-value. Reports both f² (entry-exit correlation, the dominant practical attack) and f³ (full 3-hop path compromise, the theoretical bound used in the paper). Also reports ASN's f⁶ for direct comparison.
+Monte Carlo: 10,000 sessions per f-value. Reports both f² (entry-exit correlation, the dominant practical attack) and f³ (full 3-hop path compromise, the theoretical bound used in the paper). Also reports ASN's f² (routing-only) and f⁴ (service-level, the meaningful figure) for direct comparison.
 
-### Figure 7 — cover traffic overhead (no nodes needed)
+### Cover traffic bandwidth overhead (no nodes needed)
 
 ```bash
 tor_bench_fig5.exe > results_tor_fig5.csv
@@ -87,7 +93,7 @@ tor_bench_fig5.exe > results_tor_fig5.csv
 
 Tor has no cover traffic (Tor spec §7). Produces formal zero-overhead rows for side-by-side comparison with the ASN overhead curve.
 
-### Table 7 — throughput (no nodes needed)
+### Aggregate throughput (no nodes needed)
 
 ```bash
 tor_bench_table2.exe > results_tor_table2.csv
@@ -124,4 +130,4 @@ Known issue: in the non-instrumented `tor_mix_node.c`, TN1 drops the response pa
 
 ## Note on `bench.c`
 
-`bench.c` is the original combined harness from before the per-figure benchmarks were written. It uses AES-256-GCM for the Tor Figure 5 rows rather than AES-256-CTR. Use `tor_bench_fig2_perhop.c` for the correct per-hop latency data. The Figure 6, 3, 7, and Table 7 sections of `bench.c` are superseded by the individual `tor_bench_fig*.c` programs.
+`bench.c` is the original combined harness from before the per-figure benchmarks were written. It uses AES-256-GCM for the per-hop latency rows rather than AES-256-CTR. Use `tor_bench_fig2_perhop.c` for the correct per-hop latency data. The path-construction, de-anonymisation-probability, cover-overhead, and throughput sections of `bench.c` are superseded by the individual `tor_bench_fig*.c` programs.

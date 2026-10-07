@@ -1,11 +1,11 @@
-/* bench.c  --  AnonSecNet / Tor-equivalent Benchmark Harness
+/* bench.c: AnonSecNet / Tor-equivalent Benchmark Harness
  *
  * Covers all five measurements required by Section 13 of the manuscript:
- *   bench_fig2()   -- Figure 2:  Per-hop processing latency vs payload size
- *   bench_fig3()   -- Figure 3:  Path construction time (circuit build)
- *   bench_fig4()   -- Figure 4:  Anonymity set size (Monte Carlo)
- *   bench_fig5()   -- Figure 5:  Cover traffic bandwidth overhead
- *   bench_table2() -- Table  2:  End-to-end throughput vs session count
+ *   bench_fig2(): Figure 2:  Per-hop processing latency vs payload size
+ *   bench_fig3(): Figure 3:  Path construction time (circuit build)
+ *   bench_fig4(): Figure 4:  Anonymity set size (Monte Carlo)
+ *   bench_fig5(): Figure 5:  Cover traffic bandwidth overhead
+ *   bench_table2(): Table  2:  End-to-end throughput vs session count
  *
  * Build (from project root, same flags as the existing Makefile):
  *
@@ -24,7 +24,7 @@
  * Output is plain CSV written to stdout.  Redirect to a file and plot
  * with the companion bench_plot.py script.
  *
- * ── Design notes ──────────────────────────────────────────────────────────
+ * Design notes
  *
  * Fig 2 (per-hop latency) is a pure in-process microbenchmark: no sockets,
  * no threads.  Synthetic wire packets are built once and peeled 1 000 times
@@ -44,31 +44,30 @@
  * for 60 s, then aggregates payload bytes / second.
  */
 
-/* ── Windows / Winsock boilerplate (must come first) ───────────────────── */
-#include "common/net.h"      /* pulls in winsock2.h before windows.h       */
-#include <windows.h>
+/* Networking / threading (POSIX port; net.h pulls in posix_compat.h) */
+#include "common/net.h"
 
-/* ── OpenSSL (needed for make_hop_session key derivation + RAND_bytes) ─── */
+/* OpenSSL (needed for make_hop_session key derivation + RAND_bytes) */
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 
-/* ── Project headers ────────────────────────────────────────────────────── */
+/* Project headers */
 #include "common/crypto.h"
 #include "packet.h"
 #include "config.h"
 #include "tor_config.h"
 
-/* ── Standard library ────────────────────────────────────────────────────── */
+/* Standard library */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ===========================================================================
  * §0  Timing helpers
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
 static double g_qpc_freq = 0.0;   /* QueryPerformanceFrequency in counts/s */
 
@@ -85,9 +84,9 @@ static double now_us(void) {
     return (double)t.QuadPart / g_qpc_freq * 1e6;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ===========================================================================
  * §1  Statistics helpers
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
 #define MAX_SAMPLES 2000
 
@@ -120,8 +119,8 @@ static double samples_ci95(samples_t *s) {
     return 1.96 * sqrt(var) / sqrt((double)s->n);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * §2  Figure 2 — Per-hop processing latency
+/* ===========================================================================
+ * §2  Figure 2: Per-hop processing latency
  *
  * Instrumentation point (AnonSecNet):   packet_sphinx_peel()  in packet.c
  * Instrumentation point (Tor equiv.):   crypto_aes_decrypt()  in common/crypto.c
@@ -129,7 +128,7 @@ static double samples_ci95(samples_t *s) {
  *
  * Strategy: build one synthetic wire packet per payload size, then call the
  * per-hop function 1 000 times in a tight loop with timing around each call.
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
 /* Payload sizes to sweep (bytes). */
 static const int FIG2_SIZES[]   = {64, 128, 256, 512, 1024, 2048,
@@ -180,8 +179,10 @@ static int make_hop_session(hop_session_t *hs) {
         memcpy(D[i].out->key, ks, AES_KEY_LEN);
     }
 
-    /* hint = first HINT_BYTES of local pubkey (skip 0x04 prefix) */
-    memcpy(hs->hint, local.pubkey_bytes + 1, HINT_BYTES);
+    /* Derive hint_seed (this benchmark only needs a fixed,
+     * valid hint value to build one synthetic packet with, achieved by
+     * calling packet_derive_hop_hint() with a constant counter below). */
+    packet_derive_hint_seed(&master, &hs->hint_seed);
 
     crypto_ecdh_free(&local);
     crypto_ecdh_free(&remote);
@@ -209,7 +210,7 @@ static int make_sphinx_path(sphinx_path_t *path) {
     return 0;
 }
 
-/* ── Figure 2 runner ──────────────────────────────────────────────────────── */
+/* Figure 2 runner */
 static void bench_fig2(void) {
     printf("# Figure 2: Per-hop processing latency\n");
     printf("# payload_bytes,variant,mean_us,ci95_us\n");
@@ -238,14 +239,21 @@ static void bench_fig2(void) {
          * what the spec calls for ("instrument the per-hop processing
          * function").  We build a synthetic wire_packet_t by hand. */
 
-        /* ── AnonSecNet: packet_sphinx_peel() ── */
+        /* AnonSecNet: packet_sphinx_peel() */
         {
-            /* Build a synthetic wire packet with valid MACs so peel won't
+            /* Build a synthetic wire packet with valid MACs so peel will not
              * fail.  We only need the outermost hop to be correct because
              * peel() only touches the first HEADER_BLOCK_SIZE bytes. */
             wire_packet_t pkt_in = {0}, pkt_out = {0};
             hop_info_t    hi     = {0};
             uint8_t       cover  = 0;
+
+            /* Derive one fixed hint value from hint_seed
+             * (packet_sphinx_peel()'s hint param is actually unused by
+             * its implementation, but derive a real one anyway to keep
+             * this synthetic packet coherent). */
+            uint8_t hint0[HINT_BYTES];
+            packet_derive_hop_hint(&path.hops[0].hint_seed, 0, hint0);
 
             /* Fill payload section with random data (content irrelevant) */
             RAND_bytes(pkt_in.data + HEADER_SIZE, PAYLOAD_SECTION_SIZE);
@@ -278,18 +286,18 @@ static void bench_fig2(void) {
                             block+ADDR_BYTES+BLIND_KEY_BYTES+FLAG_BYTES);
                 /* Hint */
                 memcpy(block+ADDR_BYTES+BLIND_KEY_BYTES+FLAG_BYTES+MAC_BYTES,
-                       path.hops[0].hint, HINT_BYTES);
+                       hint0, HINT_BYTES);
             }
 
             samples_t s = {0};
             for (int iter = 0; iter < FIG2_ITERS; iter++) {
                 double t0 = now_us();
-                /* ── INSTRUMENTATION POINT: packet_sphinx_peel() ── */
+                /* INSTRUMENTATION POINT: packet_sphinx_peel() */
                 int rc = packet_sphinx_peel(
                     &pkt_in,
                     &path.hops[0].header_enc_key,
                     &path.hops[0].header_mac_key,
-                    path.hops[0].hint,
+                    hint0,
                     &hi, &pkt_out, &cover);
                 double t1 = now_us();
                 if (rc != 0) {
@@ -302,10 +310,10 @@ static void bench_fig2(void) {
                    payload_bytes, samples_mean(&s), samples_ci95(&s));
         }
 
-        /* ── Tor-equivalent: crypto_aes_decrypt() ── */
+        /* Tor-equivalent: crypto_aes_decrypt() */
         {
             /* Allocate a buffer of the right size, encrypt it first,
-             * then time the decrypt in the loop — this is exactly what
+             * then time the decrypt in the loop, this is exactly what
              * handle_data() in tor_mix_node.c does (lines 226-245).      */
             size_t ct_size = (size_t)payload_bytes + GCM_OVERHEAD;
             uint8_t *plaintext = calloc(1, (size_t)payload_bytes);
@@ -330,13 +338,13 @@ static void bench_fig2(void) {
             samples_t s = {0};
             for (int iter = 0; iter < FIG2_ITERS; iter++) {
                 double t0 = now_us();
-                /* ── INSTRUMENTATION POINT: crypto_aes_decrypt() ── */
+                /* INSTRUMENTATION POINT: crypto_aes_decrypt() */
                 int pt_len = crypto_aes_decrypt(&tor_key,
                                                 ciphertext, (size_t)ct_len,
                                                 pt_out, ct_size);
                 double t1 = now_us();
                 if (pt_len < 0) {
-                    /* GCM fails after first use because nonce is fixed —
+                    /* GCM fails after first use because nonce is fixed,
                      * re-encrypt with fresh nonce for next iteration.     */
                     ct_len = crypto_aes_encrypt(&tor_key, plaintext,
                                                 (size_t)payload_bytes,
@@ -350,7 +358,7 @@ static void bench_fig2(void) {
             free(plaintext); free(ciphertext); free(pt_out);
         }
 
-        /* ── No-anonymity baseline: single crypto_aes_encrypt() ── */
+        /* No-anonymity baseline: single crypto_aes_encrypt() */
         {
             size_t ct_size  = (size_t)payload_bytes + GCM_OVERHEAD;
             uint8_t *pt     = calloc(1, (size_t)payload_bytes);
@@ -361,7 +369,7 @@ static void bench_fig2(void) {
             samples_t s = {0};
             for (int iter = 0; iter < FIG2_ITERS; iter++) {
                 double t0 = now_us();
-                /* ── INSTRUMENTATION POINT: crypto_aes_encrypt() ── */
+                /* INSTRUMENTATION POINT: crypto_aes_encrypt() */
                 crypto_aes_encrypt(&tor_key, pt, (size_t)payload_bytes,
                                    ct, ct_size);
                 double t1 = now_us();
@@ -377,17 +385,17 @@ static void bench_fig2(void) {
     }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * §3  Figure 3 — Path construction time
+/* ===========================================================================
+ * §3  Figure 3: Path construction time
  *
- * Instrumentation point (Tor):    build_circuit() — full loop in tor_client.c
+ * Instrumentation point (Tor):    build_circuit(), full loop in tor_client.c
  *                                  We replicate it here so we can loop 1 000×.
  * Instrumentation point (AnonSec): equivalent dual-path ECDHE sequence.
  *
  * REQUIRES: tor_mix_node.exe running on 9040/9041/9042 and tor_sg.exe on 9043.
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
-/* Reset mode — must match tor_mix_node.c */
+/* Reset mode, must match tor_mix_node.c */
 #define TOR_MODE_RESET  0x1F
 
 #define FIG3_ITERS 1000
@@ -460,7 +468,7 @@ static int bench_ansn_build_paths(void) {
     aes_key_t key; uint8_t hint[HINT_BYTES];
     /* Path A: 3 telescoping handshakes */
     for (int h = 0; h < 3; h++) {
-        /* reuse bench_extend_to_node -- it is agnostic to key format */
+        /* reuse bench_extend_to_node, it is agnostic to key format */
         if (bench_extend_to_node(ANSN_PATH_A_PORTS[h], &key, hint) != 0)
             return -1;
     }
@@ -480,7 +488,7 @@ static void bench_fig3(void) {
     printf("# Figure 3: Path construction time\n");
     printf("# variant,mean_ms,ci95_ms\n");
 
-    /* ── Tor-equivalent ── */
+    /* Tor-equivalent */
     {
         static const uint16_t TOR_NODE_PORTS[] = {
             TOR_PORT_TN1, TOR_PORT_TN2, TOR_PORT_TN3
@@ -490,7 +498,7 @@ static void bench_fig3(void) {
         samples_t s = {0};
         for (int iter = 0; iter < FIG3_ITERS; iter++) {
             double t0 = now_us();
-            /* ── INSTRUMENTATION POINT: bench_tor_build_circuit() ── */
+            /* INSTRUMENTATION POINT: bench_tor_build_circuit() */
             int rc = bench_tor_build_circuit();
             double t1 = now_us();
             if (rc != 0) {
@@ -499,7 +507,7 @@ static void bench_fig3(void) {
                     "(are mix nodes running?)\n", iter);
                 break;
             }
-            samples_add(&s, (t1 - t0) / 1000.0);   /* µs -> ms */
+            samples_add(&s, (t1 - t0) / 1000.0);   /* us to ms */
 
             /* Wipe sessions so the 64-slot store never fills up.
              * TOR_MODE_RESET is handled by the patched tor_mix_node.c. */
@@ -509,7 +517,7 @@ static void bench_fig3(void) {
         fflush(stdout);
     }
 
-    /* ── AnonSecNet ──
+ /* AnonSecNet
      * Note: PATH_B ports (9007-9009) must also have an AnonSecNet mix node
      * running.  If only the Tor nodes are up, comment out the ANSN block
      * and run it separately against the full AnonSecNet stack.             */
@@ -524,7 +532,7 @@ static void bench_fig3(void) {
         samples_t s = {0};
         for (int iter = 0; iter < FIG3_ITERS; iter++) {
             double t0 = now_us();
-            /* ── INSTRUMENTATION POINT: bench_ansn_build_paths() ── */
+            /* INSTRUMENTATION POINT: bench_ansn_build_paths() */
             int rc = bench_ansn_build_paths();
             double t1 = now_us();
             if (rc != 0) {
@@ -540,14 +548,14 @@ static void bench_fig3(void) {
     }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * §4  Figure 4 — Anonymity set size (Monte Carlo)
+/* ===========================================================================
+ * §4  Figure 4: Anonymity set size (Monte Carlo)
  *
- * Pure computation — no network required.
+ * Pure computation, no network required.
  * De-anonymization requires ALL path nodes to be malicious:
  *   AnonSecNet:  f^6  (6 nodes across dual path)
  *   Tor-equiv:   f^3  (3 nodes on single path)
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
 /* Sessions per f value.  At f=0.10 the AnonSecNet de-anon probability is
  * f^6 = 1e-6, so we need ~10M trials to expect even one hit.  We use an
@@ -563,7 +571,7 @@ static int fig4_session_count(double f) {
     return FIG4_SESSIONS_HIGH;
 }
 
-/* LCG PRNG — good enough for a Bernoulli trial, avoids rand() overhead. */
+/* LCG PRNG, good enough for a Bernoulli trial, avoids rand() overhead. */
 static unsigned int g_rng_state = 0;
 static void rng_seed(unsigned int seed) { g_rng_state = seed; }
 static double rng_uniform(void) {
@@ -590,20 +598,20 @@ static void bench_fig4(void) {
         double theory_ansn = pow(f, 6.0);
         double theory_tor  = pow(f, 3.0);
 
-        /* Monte Carlo — AnonSecNet (6 independent nodes, all must be bad) */
+        /* Monte Carlo, AnonSecNet (6 independent nodes, all must be bad) */
         int n_sess = fig4_session_count(f);
         int deanon_ansn = 0;
         for (int sess = 0; sess < n_sess; sess++) {
             int all_bad = 1;
             for (int n = 0; n < 6; n++) {
-                /* ── INSTRUMENTATION POINT: Bernoulli trial per node ── */
+                /* INSTRUMENTATION POINT: Bernoulli trial per node */
                 if (rng_uniform() >= f) { all_bad = 0; break; }
             }
             if (all_bad) deanon_ansn++;
         }
         double mc_ansn = (double)deanon_ansn / n_sess;
 
-        /* Monte Carlo — Tor (3 independent nodes) */
+        /* Monte Carlo, Tor (3 independent nodes) */
         int deanon_tor = 0;
         for (int sess = 0; sess < n_sess; sess++) {
             int all_bad = 1;
@@ -620,18 +628,18 @@ static void bench_fig4(void) {
     fflush(stdout);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * §5  Figure 5 — Cover traffic bandwidth overhead
+/* ===========================================================================
+ * §5  Figure 5: Cover traffic bandwidth overhead
  *
  * Instrumentation point: packet send site in the client send loop.
  * We count PKT_DUMMY vs PKT_REAL packets emitted toward MN1 over 60 s.
  *
  * Load is simulated by adjusting the fraction of slots that have real
- * traffic queued.  At load L (0.0–1.0) each slot has a real packet with
+ * traffic queued.  At load L (0.0-1.0) each slot has a real packet with
  * probability L; otherwise a cover packet is sent.
  *
  * Wire cost per packet = WIRE_PACKET_SIZE bytes in both cases.
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
 #define FIG5_DURATION_S  60
 #define FIG5_INTERVAL_MS DUMMY_INTERVAL_MS   /* 100 ms inter-packet gap */
@@ -656,10 +664,10 @@ static void bench_fig5(void) {
             int is_real = (rng_uniform() < load) ? 1 : 0;
 
             if (is_real) {
-                /* ── INSTRUMENTATION POINT: real packet toward MN1 ── */
+                /* INSTRUMENTATION POINT: real packet toward MN1 */
                 real_bytes  += WIRE_PACKET_SIZE;
             } else {
-                /* ── INSTRUMENTATION POINT: cover packet toward MN1 ── */
+                /* INSTRUMENTATION POINT: cover packet toward MN1 */
                 cover_bytes += WIRE_PACKET_SIZE;
             }
         }
@@ -675,8 +683,8 @@ static void bench_fig5(void) {
     fflush(stdout);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * §6  Table 2 — End-to-end throughput vs session count
+/* ===========================================================================
+ * §6  Table 2: End-to-end throughput vs session count
  *
  * Instrumentation point: bytes delivered to SG (or received by client).
  *
@@ -685,7 +693,7 @@ static void bench_fig5(void) {
  * We count application payload bytes (not wire bytes) for throughput.
  *
  * REQUIRES: mix nodes and SG running.
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
 #define TABLE2_DURATION_S 60
 
@@ -696,7 +704,7 @@ typedef struct {
     int session_id;
 } worker_arg_t;
 
-/* ── Pre-built wire cell ────────────────────────────────────────────────────
+/* Pre-built wire cell
  * build_wire_cell() constructs the full 3-layer onion-encrypted cell for one
  * 64-byte payload.  A fresh RAND_bytes nonce is used for every call so GCM
  * nonces are never reused across messages on the same session key.
@@ -718,7 +726,7 @@ static int build_wire_cell(
         uint8_t      **wire_out,   /* caller must free */
         int           *wire_len_out)
 {
-    /* ── Layer 3: innermost — [next_port 2B][payload 64B] ── */
+    /* Layer 3: innermost, [next_port 2B][payload 64B] */
     const int L3_PT = 2 + BENCH_MSG_LEN;
     uint8_t l3_pt[2 + BENCH_MSG_LEN];
     l3_pt[0] = (uint8_t)(TOR_PORT_SG >> 8);
@@ -732,7 +740,7 @@ static int build_wire_cell(
                                     l3_enc, l3_max);
     if (l3_len < 0) { free(l3_enc); return -1; }
 
-    /* ── Layer 2: middle — [next_port 2B][hint3 bytes][l3_enc] ── */
+    /* Layer 2: middle, [next_port 2B][hint3 bytes][l3_enc] */
     int L2_PT = 2 + TOR_HINT_BYTES + l3_len;
     uint8_t *l2_pt = malloc(L2_PT);
     if (!l2_pt) { free(l3_enc); return -1; }
@@ -750,7 +758,7 @@ static int build_wire_cell(
     free(l2_pt);
     if (l2_len < 0) { free(l2_enc); return -1; }
 
-    /* ── Layer 1: outermost — [next_port 2B][hint2 bytes][l2_enc] ── */
+    /* Layer 1: outermost, [next_port 2B][hint2 bytes][l2_enc] */
     int L1_PT = 2 + TOR_HINT_BYTES + l2_len;
     uint8_t *l1_pt = malloc(L1_PT);
     if (!l1_pt) { free(l2_enc); return -1; }
@@ -768,7 +776,7 @@ static int build_wire_cell(
     free(l1_pt);
     if (l1_len < 0) { free(l1_enc); return -1; }
 
-    /* ── Wire buffer: [mode 1B][hint1][l1_len 2B][l1_enc] ── */
+    /* Wire buffer: [mode 1B][hint1][l1_len 2B][l1_enc] */
     int wlen = 1 + TOR_HINT_BYTES + 2 + l1_len;
     uint8_t *wire = malloc(wlen);
     if (!wire) { free(l1_enc); return -1; }
@@ -788,7 +796,7 @@ static DWORD WINAPI throughput_worker(LPVOID arg) {
     worker_arg_t *wa = (worker_arg_t *)arg;
     (void)wa;
 
-    /* ── 1. Build circuit once — 3 ECDHE handshakes ── */
+    /* 1. Build circuit once, 3 ECDHE handshakes */
     aes_key_t hop_keys[TOR_MAX_HOPS];
     uint8_t   hop_hints[TOR_MAX_HOPS][TOR_HINT_BYTES];
     static const uint16_t TOR_PORTS[TOR_MAX_HOPS] = {
@@ -803,7 +811,7 @@ static DWORD WINAPI throughput_worker(LPVOID arg) {
         }
     }
 
-    /* ── 2. Send loop for TABLE2_DURATION_S ──
+ /* 2. Send loop for TABLE2_DURATION_S
      * The node closes each connection after one cell (handle_data returns
      * after one message), so we must open a new TCP connection per cell.
      * We pre-build the full onion-encrypted cell before calling connect()
@@ -834,7 +842,7 @@ static DWORD WINAPI throughput_worker(LPVOID arg) {
 
 		InterlockedAdd(&g_payload_bytes_sent, BENCH_MSG_LEN);
 	}
-	
+
     free(arg);
     return 0;
 }
@@ -873,9 +881,9 @@ static void bench_table2(void) {
         HANDLE *threads = malloc((size_t)N * sizeof(HANDLE));
         if (!threads) continue;
 
-        /* ── INSTRUMENTATION POINT: spawn N worker threads ──
+ /* INSTRUMENTATION POINT: spawn N worker threads
          * Stagger startup by 10 ms per worker so circuit-build ECDHE
-         * handshakes don't all hit the nodes simultaneously, which would
+         * handshakes do not all hit the nodes simultaneously, which would
          * exhaust the Winsock accept backlog at high N.                    */
         for (int i = 0; i < N; i++) {
             worker_arg_t *wa = malloc(sizeof(worker_arg_t));
@@ -910,9 +918,9 @@ static void bench_table2(void) {
     }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* ===========================================================================
  * §7  main
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * =========================================================================== */
 
 int main(int argc, char *argv[]) {
     SetConsoleOutputCP(65001);

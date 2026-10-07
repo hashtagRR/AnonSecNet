@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TOR_sweep_table2.py  --  Tor-Equivalent  Table 2: Throughput
+TOR_sweep_table2.py: Tor-Equivalent  Table 2: Throughput
 
 Measures aggregate throughput by launching N tor_client instances,
 letting each one build a 3-hop circuit (TN1->TN2->TN3) and send
 real data cells through to the TOR SG, reading tor_sg_goodput.csv.
 
 Between session counts the script automatically sends TOR_MODE_RESET
-(0x1F) to each mix node to wipe session slots -- no manual restart needed.
+(0x1F) to each mix node to wipe session slots, no manual restart needed.
 
 HOW TO RUN
 ----------
@@ -42,6 +42,50 @@ def reset_tor_nodes():
         except Exception:
             pass
     time.sleep(0.5)
+
+
+def restart_sg(sg_exe="./tor_sg_instrumented.exe", port=9043):
+    """Kill and relaunch tor_sg_instrumented.exe between counts.
+
+    TOR_MODE_RESET only clears the mix nodes' session stores; it says
+    nothing about the SG's tor_sg_goodput.csv, which is opened once in
+    append mode for the SG's whole lifetime. clear_csv() truncates that
+    same path from Python between counts, truncating a file out from
+    under a long-lived append-mode FILE* leaves the C process writing at
+    its old (now stale) byte offset, producing a hole of NUL bytes that
+    swallows every following row when re-parsed as CSV. Restarting the SG
+    process gives it a fresh handle at offset 0 each count.
+    """
+    try:
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry}/cmdline", "rb") as fp:
+                    argv0 = fp.read().split(b"\0", 1)[0].decode(errors="replace")
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if os.path.basename(argv0) == os.path.basename(sg_exe):
+                try:
+                    os.kill(int(entry), 9)
+                except (ProcessLookupError, PermissionError):
+                    pass
+    except Exception:
+        pass
+
+    time.sleep(0.5)
+    subprocess.Popen([sg_exe], stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL)
+
+    deadline = time.perf_counter() + 10
+    while time.perf_counter() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.connect(("127.0.0.1", port))
+                return True
+            except OSError:
+                time.sleep(0.2)
+    return False
 
 
 def read_goodput_csv(path):
@@ -147,7 +191,7 @@ def run_session_count(n_clients, client_exe, session_csv,
         if ready >= len(procs):
             break
     ready = count_session_csv(session_csv) - before_sessions
-    print(f" {ready}/{len(procs)} ready -- measuring for {duration_s}s")
+    print(f" {ready}/{len(procs)} ready, measuring for {duration_s}s")
 
     for p in procs:
         try:
@@ -171,7 +215,7 @@ def run_session_count(n_clients, client_exe, session_csv,
 
     if not working:
         return {"n_clients": n_clients, "mean_bps": 0,
-                "ci95_bps": 0, "peak_bps": 0, "n": 0}
+                "ci95_bps": 0, "peak_bps": 0, "n": 0, "n_total": len(values)}
 
     m, hw = ci95(working)
     return {
@@ -253,8 +297,10 @@ def main():
 
         # Auto-reset nodes between counts instead of manual restart
         if i < len(counts) - 1:
-            print("    Resetting TOR node sessions...", end="", flush=True)
+            print("    Resetting TOR node sessions and restarting SG...",
+                  end="", flush=True)
             reset_tor_nodes()
+            restart_sg()
             print(" done.")
 
     asn     = read_baseline(args.asn_csv)

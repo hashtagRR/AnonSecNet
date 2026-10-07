@@ -1,4 +1,4 @@
-/* tor_bench_fig4_anonymity.c  --  Figure 4: Anonymity Set Size (Tor-equivalent)
+/* tor_bench_fig4_anonymity.c: Figure 4: Anonymity Set Size (Tor-equivalent)
  *
  * Section 13.3 of AnonSecNet_Implementation_Spec:
  *   "Anonymity set size as a function of malicious node fraction f,
@@ -44,13 +44,13 @@
 #include <math.h>
 #include <time.h>
 
-/* ── Configuration ───────────────────────────────────────────────────────── */
+/* Configuration */
 #define NUM_NODES      100
 #define SESSIONS       10000
 /* f from 0.00 to 0.50, step 0.01 */
 #define NUM_F_VALUES   51
 
-/* ── Wilson score confidence interval ───────────────────────────────────── */
+/* Wilson score confidence interval */
 static double wilson_ci95(int k, int n) {
     if (n == 0) return 0.0;
     double p = (double)k / n;
@@ -62,18 +62,24 @@ static double wilson_ci95(int k, int n) {
     return spread;
 }
 
-/* ── Unique random node selection (Tor circuits only) ────────────────────── */
+/* Unique random node selection (Tor circuits only) */
 static int rand_node(int n) { return rand() % n; }
 
-/* ── Main ───────────────────────────────────────────────────────────────── */
-int main(void) {
-    srand((unsigned)time(NULL));
+/* Main */
+int main(int argc, char **argv) {
+    /* Fixed default seed for run-to-run reproducibility of this Monte
+     * Carlo simulation (informational/statistical only, not
+     * security-relevant, same rationale as train_fens_adapted.py's
+     * --seed fix). Pass a seed as argv[1] to override. */
+    unsigned seed = 20260721u;
+    if (argc > 1) seed = (unsigned)strtoul(argv[1], NULL, 10);
+    srand(seed);
 
     printf("# Tor-equivalent Figure 4: Anonymity set Monte Carlo\n");
     printf("# Source: tor_bench_fig4_anonymity.c\n");
     printf("# tor_f2: entry-exit correlation attack (dominant real-world Tor threat)\n");
     printf("# tor_f3: full-path compromise (all 3 hops malicious, used in spec Fig4)\n");
-    printf("# n_nodes=%d, sessions=%d per f-value\n", NUM_NODES, SESSIONS);
+    printf("# n_nodes=%d, sessions=%d per f-value, seed=%u\n", NUM_NODES, SESSIONS, seed);
     printf("f,tor_f2_theory,tor_f3_theory,"
            "tor_f2_mc,tor_f2_mc_ci95,"
            "tor_f3_mc,tor_f3_mc_ci95,n_sessions\n");
@@ -98,7 +104,7 @@ int main(void) {
 
         for (int s = 0; s < SESSIONS; s++) {
 
-            /* ── Tor circuit: 3 distinct hops ─────────────────────────── */
+            /* Tor circuit: 3 distinct hops */
             int tor_nodes[3];
             tor_nodes[0] = rand_node(NUM_NODES);  /* guard */
             do { tor_nodes[1] = rand_node(NUM_NODES); }

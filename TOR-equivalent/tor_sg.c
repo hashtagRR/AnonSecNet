@@ -1,10 +1,10 @@
-/* tor_sg.c  --  Tor-Equivalent Baseline Service Gateway (Destination)
+/* tor_sg.c: Tor-Equivalent Baseline Service Gateway (Destination)
  *
  * Simplified SG that:
  *   1. Receives plaintext payload from exit node (TN3)
  *   2. Echoes a response back through the circuit
  *
- * For benchmarking, this is intentionally minimal -- the SG
+ * For benchmarking, this is intentionally minimal, the SG
  * processing overhead is not part of the per-hop comparison.
  *
  * Build:  gcc -O2 -o tor_sg.exe tor_sg.c common/crypto.c
@@ -18,12 +18,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
+#include "common/posix_compat.h"
 
-/* ── Per-circuit keys (set by client via a setup message) ─────────────── */
+/* Per-circuit keys (set by client via a setup message) */
 /* For the baseline, the SG holds the 3 per-hop hints so it can
  * address response cells back through TN3 -> TN2 -> TN1.
- * In a real Tor circuit the SG doesn't have hop keys; the exit
+ * In a real Tor circuit the SG does not have hop keys; the exit
  * node handles the layering. Here we simplify: the response is
  * sent directly to TN3 which adds layers on the return path.     */
 
@@ -34,7 +34,7 @@ static void log_err(const char *msg) {
     fprintf(stderr, "[TOR-SG] ERROR: %s\n", msg); fflush(stderr);
 }
 
-/* ── Connection handler ───────────────────────────────────────────────── */
+/* Connection handler */
 typedef struct {
     SOCKET sock;
 } sg_conn_t;
@@ -71,7 +71,7 @@ static DWORD WINAPI handle_sg_conn(LPVOID arg) {
                  "received %u bytes: %.64s", plen, payload);
         log_msg(logbuf);
 
-        /* Build response -- echo back with a prefix */
+        /* Build response, echo back with a prefix */
         char response[TOR_CELL_PAYLOAD];
         int rlen = snprintf(response, sizeof(response),
                             "SG-ECHO: %.*s", plen, payload);
@@ -101,7 +101,7 @@ done:
     return 0;
 }
 
-/* ── main ─────────────────────────────────────────────────────────────── */
+/* main */
 int main(void) {
     SetConsoleOutputCP(65001);
     if (net_init() != 0) return 1;

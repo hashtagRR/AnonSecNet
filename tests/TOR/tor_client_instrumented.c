@@ -1,4 +1,4 @@
-/* tor_client_instrumented.c  --  Tor-Equivalent Instrumented Client (v4)
+/* tor_client_instrumented.c: Tor-Equivalent Instrumented Client (v4)
  *
  * Mirrors ASN client_instrumented.c architecture exactly:
  *   - 4 crypto worker threads pre-build cells into a ring buffer
@@ -23,8 +23,6 @@
 #include <string.h>
 #include <math.h>
 #include <stdatomic.h>
-#include <windows.h>
-#include <ws2tcpip.h>
 
 /* ---- Per-hop session keys ------------------------------------------------ */
 typedef struct {
@@ -56,8 +54,19 @@ static double time_now_ms(void) {
 /* ---- Poisson interval (identical to ASN client) -------------------------- */
 #define SEND_INTERVAL_MS  100
 
+/* RAND_bytes, not libc rand()/srand(), rand()/srand() is process-global,
+ * unseeded state-machine-predictable via GetTickCount(), and racy across
+ * threads. Same fix already applied to the ASN side's cover-traffic
+ * timing; missed here since this is a separate, independently-duplicated
+ * TOR-equivalent instrumented harness file. */
+static double uniform01(void) {
+    uint32_t r;
+    if (RAND_bytes((uint8_t *)&r, sizeof(r)) != 1) r = 1;
+    return ((double)r + 1.0) / (4294967296.0 + 1.0);
+}
+
 static DWORD poisson_interval_ms(void) {
-    double u = (rand() + 1.0) / (RAND_MAX + 2.0);
+    double u = uniform01();
     double interval = -(double)SEND_INTERVAL_MS * log(u);
     if (interval < 10.0)   interval = 10.0;
     if (interval > 1000.0) interval = 1000.0;
@@ -270,7 +279,6 @@ static DWORD WINAPI crypto_thread(LPVOID arg) {
 /* ---- Poisson send thread (matches ASN outbound_cover_thread) ------------ */
 static DWORD WINAPI send_thread(LPVOID arg) {
     (void)arg;
-    srand((unsigned)GetTickCount() ^ (unsigned)GetCurrentProcessId());
 
     while (atomic_load(&g_running)) {
         Sleep(poisson_interval_ms());
@@ -279,7 +287,7 @@ static DWORD WINAPI send_thread(LPVOID arg) {
         atomic_fetch_add(&g_slots_total, 1);
 
         /* At SET_RATE 1.0 every slot sends. At 0.0 nothing sends.
-         * Tor has no cover traffic -- idle slots are silent. */
+         * Tor has no cover traffic, idle slots are silent. */
         if (!atomic_load(&g_send_active)) continue;
 
         /* Pop pre-built cell from queue (retry up to 50ms like ASN) */

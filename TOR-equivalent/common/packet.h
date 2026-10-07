@@ -6,12 +6,12 @@
 #include <stdint.h>
 #include <stddef.h>
 
-/* ── Wire packet ─────────────────────────────────────────────────────────── */
+/* Wire packet */
 typedef struct {
     uint8_t data[WIRE_PACKET_SIZE];
 } wire_packet_t;
 
-/* ── Header block (one per hop, stored consecutively) ───────────────────────
+/* Header block (one per hop, stored consecutively)
  *
  * Layout within header section of wire packet:
  *   Block 0 (hop 0 = MN1): bytes   0 .. 85
@@ -25,7 +25,7 @@ typedef struct {
  *   [54..85] hint        : unencrypted x-coordinate of ephemeral ECDHE key
  *                          used by the mix node for O(1) key lookup
  *
- * The hint is not secret — it reveals nothing about the Receiver, the SG,
+ * The hint is not secret, it reveals nothing about the Receiver, the SG,
  * or any other path component. It allows the mix node to find its session
  * key in O(1) by matching the hint against stored ephemeral keys.
  */
@@ -37,14 +37,14 @@ typedef struct {
     uint8_t hint[HINT_BYTES];             /* unencrypted ECDHE x-coord     */
 } header_block_t;   /* sizeof == HEADER_BLOCK_SIZE (87) */
 
-/* ── Decoded hop info (returned by packet_peel_header) ─────────────────── */
+/* Decoded hop info (returned by packet_peel_header) */
 typedef struct {
     uint8_t  next_ip[4];     /* next hop IPv4 address                      */
     uint16_t next_port;      /* next hop port (host byte order)            */
     uint8_t  blind_key[BLIND_KEY_BYTES]; /* AES-CTR key for payload XOR   */
 } hop_info_t;
 
-/* ── Per-hop session state (held by client during path construction) ─────── */
+/* Per-hop session state (held by client during path construction) */
 typedef struct {
     aes_key_t  header_enc_key;  /* for encrypting addr+bkey in header block */
     aes_key_t  header_mac_key;  /* for MAC over header block                */
@@ -52,12 +52,12 @@ typedef struct {
     uint8_t    hint[HINT_BYTES];/* x-coord of ephemeral key, sent in header */
 } hop_session_t;
 
-/* ── End-to-end session (client <-> SG) ─────────────────────────────────── */
+/* End-to-end session (client <-> SG) */
 typedef struct {
     aes_key_t e2e_key;       /* K_R-SG-A or K_R-SG-B (AES-256-GCM)        */
 } e2e_session_t;
 
-/* ── Path descriptor ─────────────────────────────────────────────────────── */
+/* Path descriptor */
 typedef struct {
     hop_session_t hops[N_PATH_HOPS];  /* per-hop state for MN1, MN2, MN3   */
     e2e_session_t e2e;                /* end-to-end key to SG               */
@@ -85,7 +85,7 @@ typedef struct {
  *   1. Encrypt payload under e2e_key (AES-256-GCM) -> e2e_ct
  *   2. Apply blinding: blind_2(blind_1(blind_0(e2e_ct))) -> blinded
  *      (all three blinding keys applied before sending so SG can undo)
- *      Wait — see note below on blinding direction.
+ *      Wait, see note below on blinding direction.
  *   3. Build header blocks for MN1, MN2, MN3
  *   4. Assemble: [header_blocks][blinded_payload]
  *
@@ -151,7 +151,7 @@ int packet_sphinx_unwrap(const wire_packet_t *pkt,
  * Returns 0 on success, -1 on error. */
 int packet_sphinx_dummy(const sphinx_path_t *path, wire_packet_t *out);
 
-/* ── Utility ─────────────────────────────────────────────────────────────── */
+/* Utility */
 
 /* AES-CTR XOR: keystream(key, nonce=0) XOR data -> out
  * Used for header field encryption and payload blinding.
@@ -178,12 +178,12 @@ int packet_hmac(const uint8_t *key, size_t key_len,
  * prepends it to the response. MNc/MNb/MNa each peel one block.
  *
  * Return header block layout (RETURN_BLOCK_SIZE = 54 bytes):
- *   enc_addr[6]   -- AES-CTR encrypted next-hop IP:port
- *   mac[16]       -- HMAC-SHA256[:16] over enc_addr
- *   hint[32]      -- unencrypted x-coord of client's ephemeral key
+ *   enc_addr[6]:   AES-CTR encrypted next-hop IP:port
+ *   mac[16]:       HMAC-SHA256[:16] over enc_addr
+ *   hint[32]:      unencrypted x-coord of client's ephemeral key
  *                    (same hint used during path A/B construction)
  *
- * No blinding key -- return path payload is not blinded.
+ * No blinding key, return path payload is not blinded.
  * Response stays encrypted under K_R-SG-B from SG to Client.
  */
 
@@ -224,11 +224,11 @@ int packet_build_return_header(
 
 /* Peel one return header block (called by MNc, MNb, MNa).
  *
- * rhdr          -- incoming return_header_t (first block is ours)
- * header_enc_key -- our AES-CTR key for decrypting enc_addr
- * header_mac_key -- our HMAC key for verifying MAC
- * out_next      -- filled with next-hop address
- * out_rhdr      -- remaining header (blocks shifted left by one)
+ * rhdr: incoming return_header_t (first block is ours)
+ * header_enc_key: our AES-CTR key for decrypting enc_addr
+ * header_mac_key: our HMAC key for verifying MAC
+ * out_next: filled with next-hop address
+ * out_rhdr: remaining header (blocks shifted left by one)
  *
  * Returns 0 on success, -1 on MAC failure. */
 int packet_peel_return_header(

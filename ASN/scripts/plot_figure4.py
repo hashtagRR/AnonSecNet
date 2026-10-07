@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
-plot_figure4.py  --  Anon-Sec-Net v2  Figure 4: Anonymity Set Size
+*** SUPERSEDED, DO NOT RUN ***
+Plots `figure4_anonymity_set.csv`, produced by the equally-superseded
+`montecarlo_figure4.py` (retracted f^6 model), see that file's own
+warning header. Use `Submission_revised/plotscripts/montecarlo_fig_deanon.py`
+for the current submission's actual de-anonymisation figure instead.
+***
+
+plot_figure4.py: Anon-Sec-Net v2  Figure 4: Anonymity Set Size
 
 Generates a publication-quality log-scale plot of de-anonymisation probability
 vs malicious node fraction f, for both Anon-Sec-Net (f^6) and Tor-equivalent
@@ -69,14 +76,14 @@ def plot(rows, out_path, dpi):
     asn_dense  = f_dense ** 6
     tor_dense  = f_dense ** 3
 
-    # ── Figure setup ─────────────────────────────────────────────────────
+    # -- Figure setup -----------------------------------------------------
     fig, ax = plt.subplots(figsize=(7, 5))
 
-    # Colour palette -- accessible, print-friendly
+    # Colour palette, accessible, print-friendly
     CLR_ASN = "#185FA5"   # blue
     CLR_TOR = "#D85A30"   # coral/orange
 
-    # ── Theory curves ────────────────────────────────────────────────────
+    # -- Theory curves ----------------------------------------------------
     ax.plot(f_dense, asn_dense,
             color=CLR_ASN, linewidth=1.8, linestyle="-",
             label=r"Anon-Sec-Net  $f^6$  (theory)", zorder=3)
@@ -85,7 +92,7 @@ def plot(rows, out_path, dpi):
             color=CLR_TOR, linewidth=1.8, linestyle="--",
             label=r"Tor-equivalent  $f^3$  (theory)", zorder=3)
 
-    # ── Monte Carlo points with CI error bars ────────────────────────────
+    # -- Monte Carlo points with CI error bars ----------------------------
     # Only plot MC points where asn_mc > 0 (below MC resolution -> skip)
     asn_mask = asn_mc > 0
     tor_mask  = tor_mc > 0
@@ -102,7 +109,7 @@ def plot(rows, out_path, dpi):
                 capsize=3, capthick=1, linewidth=0.8, elinewidth=0.8,
                 label="Tor-equivalent  (Monte Carlo)", zorder=4)
 
-    # ── Annotation: f=0.1 key claim ──────────────────────────────────────
+    # -- Annotation: f=0.1 key claim --------------------------------------
     ax.annotate(
         r"$f=0.1$: ASN $\approx 10^{-6}$" + "\n" + r"Tor-eq $\approx 10^{-3}$  (1000× worse)",
         xy=(0.1, 1e-3), xycoords="data",
@@ -115,7 +122,7 @@ def plot(rows, out_path, dpi):
                   edgecolor="#D3D1C7", linewidth=0.6, alpha=0.92),
     )
 
-    # ── Axes ─────────────────────────────────────────────────────────────
+    # -- Axes -------------------------------------------------------------
     ax.set_yscale("log")
     ax.set_xlim(-0.01, 1.01)
     ax.set_ylim(1e-9, 2.0)
@@ -136,14 +143,14 @@ def plot(rows, out_path, dpi):
     ax.tick_params(axis="both", which="major", labelsize=9)
     ax.tick_params(axis="both", which="minor", labelsize=0)
 
-    # ── Legend ───────────────────────────────────────────────────────────
+    # -- Legend -----------------------------------------------------------
     leg = ax.legend(
         loc="upper left", fontsize=8.5,
         framealpha=0.92, edgecolor="#B4B2A9",
         handlelength=2.2, labelspacing=0.5,
     )
 
-    # ── MC resolution note ───────────────────────────────────────────────
+    # -- MC resolution note -----------------------------------------------
     n_sessions = int(rows[0]["n_sessions"]) if rows else 10000
     mc_floor   = 1.0 / n_sessions
     ax.axhline(mc_floor, color="#888780", linewidth=0.7,
@@ -153,7 +160,7 @@ def plot(rows, out_path, dpi):
             fontsize=6.5, color="#5F5E5A",
             va="bottom", ha="left", linespacing=1.3)
 
-    # ── Layout and save ──────────────────────────────────────────────────
+    # -- Layout and save --------------------------------------------------
     fig.tight_layout()
 
     ext = os.path.splitext(out_path)[1].lower()
@@ -177,7 +184,7 @@ def main():
         description="Plot Figure 4: Anonymity Set Size vs Malicious Fraction."
     )
     parser.add_argument(
-        "--dir", default=".",
+        "--dir", default="results",
         help="Directory containing figure4_anonymity_set.csv",
     )
     parser.add_argument(

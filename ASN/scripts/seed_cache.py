@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-seed_cache.py  --  Seed the cache server with a test key for benchmarking.
+seed_cache.py: Seed the cache server with a test key for benchmarking.
 
 The cache server (port 9012) expects:
   [TYPE(1)][klen(1)][key(klen)][dlen(2)][data(dlen)]

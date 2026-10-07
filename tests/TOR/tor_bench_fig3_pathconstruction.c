@@ -1,4 +1,4 @@
-/* tor_bench_fig3_pathconstruction.c  --  Figure 3: Path Construction Time (Tor-equivalent)
+/* tor_bench_fig3_pathconstruction.c: Figure 3: Path Construction Time (Tor-equivalent)
  *
  * Section 13.2 of AnonSecNet_Implementation_Spec:
  *   "Path construction time for Anon-Sec-Net (two paths, eight ECDHE
@@ -62,13 +62,13 @@ static double timer_us(void) {
 }
 #endif
 
-/* ── Configuration ───────────────────────────────────────────────────────── */
+/* Configuration */
 #define ITERATIONS       1000
 
 /* Tor: 3 telescoping + 1 end-to-end = 4 total */
 #define TOR_HANDSHAKES    4
 
-/* ── Single ECDHE handshake (keygen + derive, both sides) ────────────────── *
+/* Single ECDHE handshake (keygen + derive, both sides) *
  * Models one ntor (Curve25519) handshake: initiator keygen, responder keygen,
  * shared secret derivation.
  * Returns cost in microseconds.
@@ -107,7 +107,7 @@ static double do_one_handshake(void) {
     return t1 - t0;
 }
 
-/* ── Statistics ──────────────────────────────────────────────────────────── */
+/* Statistics */
 typedef struct {
     double mean_ms;
     double ci95_ms;
@@ -146,7 +146,7 @@ static stats_t compute_stats(double *s, int n) {
     return st;
 }
 
-/* ── Run one variant ─────────────────────────────────────────────────────── */
+/* Run one variant */
 static void run_variant(const char *name, int n_handshakes,
                         double *samples, int n_iters) {
     fprintf(stderr, "[fig3] %s: %d ECDHE handshakes x %d iterations...\n",
@@ -157,14 +157,14 @@ static void run_variant(const char *name, int n_handshakes,
         for (int h = 0; h < n_handshakes; h++) {
             total_us += do_one_handshake();
         }
-        samples[i] = total_us / 1000.0;   /* µs → ms */
+        samples[i] = total_us / 1000.0;   /* us to ms */
 
         if ((i+1) % 100 == 0)
             fprintf(stderr, "  iter %d/%d  last=%.3f ms\n", i+1, n_iters, samples[i]);
     }
 }
 
-/* ── Main ───────────────────────────────────────────────────────────────── */
+/* Main */
 int main(void) {
     timer_init();
 
@@ -178,7 +178,7 @@ int main(void) {
     printf("# Methodology: 1000 iterations, in-process, no sockets\n");
     printf("protocol,n,mean_ms,ci95_ms,median_ms,p5_ms,p95_ms,min_ms,max_ms\n");
 
-    /* ── Tor-equivalent: 4 handshakes ──────────────────────────────────── */
+    /* Tor-equivalent: 4 handshakes */
     run_variant("tor_equivalent", TOR_HANDSHAKES, samples, ITERATIONS);
     {
         stats_t s = compute_stats(samples, ITERATIONS);
@@ -190,7 +190,15 @@ int main(void) {
                 s.mean_ms, s.ci95_ms);
     }
 
-    /* ── No-anonymity: 0 handshakes (direct connect baseline) ─────────── */
+ /* Print raw samples for the Tor variant, immediately after the real
+     * run and before the no_anonymity block below overwrites `samples`,
+     * so the raw dump matches the summary stats computed above. */
+    printf("\n# raw tor_equivalent samples (ms)\n");
+    for (int i = 0; i < ITERATIONS; i++) {
+        printf("%.3f\n", samples[i]);
+    }
+
+    /* No-anonymity: 0 handshakes (direct connect baseline) */
     for (int i = 0; i < ITERATIONS; i++) samples[i] = 0.0;
     {
         stats_t s = compute_stats(samples, ITERATIONS);
@@ -199,13 +207,6 @@ int main(void) {
                s.p5_ms, s.p95_ms, s.min_ms, s.max_ms);
         fflush(stdout);
         fprintf(stderr, "[fig3] baseline: 0 ms by design\n");
-    }
-
-    /* ── Print raw samples for the Tor variant ─────────────────────────── */
-    printf("\n# raw tor_equivalent samples (ms)\n");
-    run_variant("tor_equivalent_raw", TOR_HANDSHAKES, samples, ITERATIONS);
-    for (int i = 0; i < ITERATIONS; i++) {
-        printf("%.3f\n", samples[i]);
     }
 
     free(samples);

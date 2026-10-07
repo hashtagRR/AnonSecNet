@@ -1,4 +1,4 @@
-/* tor_bench_fig5_cover.c  --  Figure 5: Cover Traffic Bandwidth Overhead (Tor-equivalent)
+/* tor_bench_fig5_cover.c: Figure 5: Cover Traffic Bandwidth Overhead (Tor-equivalent)
  *
  * Section 13.4 of AnonSecNet_Implementation_Spec:
  *   "Cover traffic overhead as a function of real traffic load."
@@ -8,7 +8,7 @@
  *   - Standard Tor does NOT generate padding/cover traffic in normal operation.
  *   - Tor Proposal 188 / Vanguards addon adds some padding, but this is NOT
  *     part of the core Tor protocol and is not the default.
- *   - Reference: Tor spec §7 "Flow control" — no mention of dummy traffic.
+ *   - Reference: Tor spec §7 "Flow control", no mention of dummy traffic.
  *   - The absence of cover traffic is a known anonymity/traffic-analysis
  *     weakness of Tor (referenced in the Dingledine 2004 paper and numerous
  *     subsequent works).
@@ -20,7 +20,7 @@
  *   3. Provides side-by-side CSV output so Figure 5 can show:
  *      - ASN cover overhead curve (from bench_cover_traffic.c / existing CSV)
  *      - Tor flat 0% line
- *      - The bandwidth gap (ASN wastes X% on cover that Tor doesn't pay)
+ *      - The bandwidth gap (ASN wastes X% on cover that Tor does not pay)
  *
  * Input: reads ASN cover overhead data from stdin OR uses hardcoded values
  *        from ASN_cover_overhead_figure5__60s.csv for the comparison table.
@@ -38,7 +38,7 @@
 #include <math.h>
 #include <time.h>
 
-/* ── Configuration ───────────────────────────────────────────────────────── */
+/* Configuration */
 #define SIM_DURATION_MS    60000.0
 #define PACKET_SIZE        512
 #define COVER_RATE_PPS     125.0
@@ -49,7 +49,7 @@ static const double LOAD_LEVELS[NUM_LOAD_LEVELS] = {
     0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90
 };
 
-/* ── Poisson simulation for Tor (no cover traffic) ───────────────────────── *
+/* Poisson simulation for Tor (no cover traffic) *
  * Tor forwards real cells only. Idle periods = silence.
  * We simulate the same real traffic load as ASN but with no cover injected.
  */
@@ -93,13 +93,19 @@ static sim_result_t tor_simulate(double load_fraction) {
     return r;
 }
 
-int main(void) {
-    srand((unsigned)time(NULL));
+int main(int argc, char **argv) {
+    /* Fixed default seed for run-to-run reproducibility, see
+     * tor_bench_fig4_anonymity.c's identical fix. Pass a seed as argv[1]
+     * to override. */
+    unsigned seed = 20260721u;
+    if (argc > 1) seed = (unsigned)strtoul(argv[1], NULL, 10);
+    srand(seed);
 
     printf("# Tor-equivalent Figure 5: cover traffic overhead\n");
     printf("# Source: tor_bench_fig5_cover.c\n");
     printf("# Tor has NO cover traffic by design (Tor spec section 7)\n");
     printf("# Tor overhead = 0%% at all load levels\n");
+    printf("# seed=%u\n", seed);
     printf("load_pct,protocol,cover_overhead_pct,real_traffic_pct,"
            "bandwidth_efficiency\n");
 

@@ -1,0 +1,14 @@
+# 4-vCPU/7.8GB dev-box throughput run, measured on the final,
+# fully security-fixed code (includes the H1 per-hop crypto cost and a
+# TCP_NODELAY fix). Shape: monotonic rise through N=100 (5498.2 kbps),
+# decline of -26.4% by N=200 (4045.5 kbps): part of the paper's
+# cross-machine dose-response argument (2/4/16-vCPU data points) for
+# why the 16-vCPU throughput ceiling is a hardware effect, not a
+# protocol-level scalability limit.
+n_clients,protocol,mean_bps,ci95_bps,peak_bps,mean_kbps,ci95_kbps,peak_kbps,n_samples
+1,asn,92698.9,5953.0,245760.0,92.699,5.953,245.760,266
+5,asn,395251.0,14048.3,737280.0,395.251,14.048,737.280,314
+10,asn,765252.7,27218.8,1392640.0,765.253,27.219,1392.640,328
+50,asn,3213799.2,141865.2,5160960.0,3213.799,141.865,5160.960,433
+100,asn,5498192.5,276150.3,9584640.0,5498.193,276.150,9584.640,566
+200,asn,4045451.5,275782.3,17571840.0,4045.452,275.782,17571.840,833

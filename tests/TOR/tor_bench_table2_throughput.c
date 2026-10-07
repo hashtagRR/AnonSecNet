@@ -1,4 +1,4 @@
-/* tor_bench_table2_throughput.c  --  Table 2: Throughput Comparison (Tor-equivalent)
+/* tor_bench_table2_throughput.c: Table 2: Throughput Comparison (Tor-equivalent)
  *
  * Section 13.5 of AnonSecNet_Implementation_Spec:
  *   "End-to-end throughput for Anon-Sec-Net versus Tor-equivalent versus
@@ -66,7 +66,7 @@ static double timer_sec(void) {
 }
 #endif
 
-/* ── Configuration ───────────────────────────────────────────────────────── */
+/* Configuration */
 
 /* Tor relay cell payload: 512 bytes (full 514-byte cell minus 2-byte header).
  * Reference: Tor spec §3 "Cell Packet format" */
@@ -83,7 +83,7 @@ static double timer_sec(void) {
 static const int N_CLIENTS_LIST[] = {1, 5, 10, 50, 100, 200, 500};
 #define NUM_N_CLIENTS ((int)(sizeof(N_CLIENTS_LIST)/sizeof(N_CLIENTS_LIST[0])))
 
-/* ── Per-hop Tor operation: AES-256-CTR decrypt ──────────────────────────── */
+/* Per-hop Tor operation: AES-256-CTR decrypt */
 static void tor_cell_perhop(const uint8_t *key, const uint8_t *in,
                             uint8_t *out, int len) {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -104,7 +104,7 @@ static void tor_process_cell(const aes_key_t *keys, uint8_t *buf, uint8_t *tmp,
     }
 }
 
-/* ── No-anonymity baseline: memcpy through hops ──────────────────────────── */
+/* No-anonymity baseline: memcpy through hops */
 static void baseline_process(uint8_t *buf, uint8_t *tmp,
                               int payload_len, int hops) {
     for (int h = 0; h < hops; h++) {
@@ -113,7 +113,7 @@ static void baseline_process(uint8_t *buf, uint8_t *tmp,
     }
 }
 
-/* ── Statistics ──────────────────────────────────────────────────────────── */
+/* Statistics */
 typedef struct {
     double mean_bps;
     double ci95_bps;
@@ -140,7 +140,7 @@ static throughput_stats_t compute_throughput_stats(double *bps_samples, int n) {
     return st;
 }
 
-/* ── Run throughput measurement ──────────────────────────────────────────── */
+/* Run throughput measurement */
 static throughput_stats_t run_throughput(
     const char *variant,
     int n_clients,
@@ -191,7 +191,7 @@ static throughput_stats_t run_throughput(
     return stats;
 }
 
-/* ── Main ───────────────────────────────────────────────────────────────── */
+/* Main */
 int main(void) {
     timer_init();
 

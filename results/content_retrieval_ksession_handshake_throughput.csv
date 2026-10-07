@@ -1,0 +1,11 @@
+# Anon-Sec-Net: Table 2 throughput, PRODUCTION client.exe/sender.exe,
+# full K_session/K_content handshake per GET. NOT directly comparable
+# to the original table2_results.csv (raw SG packet bps, no handshake,
+# no Sender).
+n_clients,completed,elapsed_s,get_per_s,mean_latency_s,kbps_equiv_approx
+1,22,31.06,0.708,1.411,0.12
+5,100,31.33,3.192,1.530,0.56
+10,197,32.78,6.010,1.557,1.06
+50,271,34.87,7.772,1.777,1.37
+100,269,34.57,7.781,1.757,1.37
+200,263,34.34,7.658,1.750,1.35

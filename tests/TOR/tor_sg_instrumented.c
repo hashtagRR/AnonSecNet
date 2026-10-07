@@ -1,4 +1,4 @@
-/* tor_sg_instrumented.c  --  Tor-Equivalent Instrumented Service Gateway (v4)
+/* tor_sg_instrumented.c: Tor-Equivalent Instrumented Service Gateway (v4)
  *
  * Fire-and-forget throughput measurement:
  *   - Receives cell, counts bytes, closes. No echo response.
@@ -22,9 +22,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
-#include <windows.h>
 
-#define TOR_WIRE_BYTES  TOR_CELL_PAYLOAD   /* 1024 -- matches ASN */
+#define TOR_WIRE_BYTES  TOR_CELL_PAYLOAD   /* 1024, matches ASN */
 
 /* Atomic counters */
 static atomic_llong g_window_bytes = 0;
@@ -103,7 +102,7 @@ static DWORD WINAPI handle_sg_conn(LPVOID arg) {
         uint8_t payload[TOR_CELL_PAYLOAD];
         if (net_recv_all(sock, payload, plen) != 0) goto done;
 
-        /* Count and done. No echo response -- fire and forget.
+        /* Count and done. No echo response, fire and forget.
          * This matches ASN SG which counts WIRE_PACKET_SIZE per
          * arrival without echoing back on every cell. */
         atomic_fetch_add(&g_window_bytes, (long long)TOR_WIRE_BYTES);

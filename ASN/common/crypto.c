@@ -6,11 +6,17 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 #include <openssl/params.h>
+#include <openssl/pem.h>
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
-/* -- Internal ------------------------------------------------------------- */
+/*, Internal ------------------------------------------------------------- */
 
 static void ossl_err(const char *where) {
     unsigned long e;
@@ -19,7 +25,7 @@ static void ossl_err(const char *where) {
         fprintf(stderr, "  %s\n", ERR_error_string(e, NULL));
 }
 
-/* -- ECDHE ---------------------------------------------------------------- */
+/*, ECDHE ---------------------------------------------------------------- */
 
 int crypto_ecdh_keygen(ecdh_keypair_t *kp) {
     if (!kp) return -1;
@@ -141,6 +147,75 @@ done:
     return rc;
 }
 
+int crypto_ecdh_derive_bound(const ecdh_keypair_t *local_kp,
+                             const uint8_t        *remote_pubkey,
+                             const uint8_t         client_pub[EC_PUBKEY_LEN],
+                             const uint8_t         node_pub[EC_PUBKEY_LEN],
+                             uint16_t              port,
+                             uint8_t               role,
+                             aes_key_t            *out_key) {
+    if (!local_kp || !local_kp->pkey || !remote_pubkey || !client_pub ||
+        !node_pub || !out_key) return -1;
+
+    int           rc     = -1;
+    EVP_PKEY     *remote = NULL;
+    EVP_PKEY_CTX *dctx   = NULL;
+    EVP_KDF      *kdf    = NULL;
+    EVP_KDF_CTX  *kctx   = NULL;
+    uint8_t       shared[32];
+    size_t        shared_len = sizeof(shared);
+
+    remote = import_pubkey(remote_pubkey);
+    if (!remote) goto done;
+
+    dctx = EVP_PKEY_CTX_new(local_kp->pkey, NULL);
+    if (!dctx || EVP_PKEY_derive_init(dctx) <= 0 ||
+        EVP_PKEY_derive_set_peer(dctx, remote) <= 0 ||
+        EVP_PKEY_derive(dctx, shared, &shared_len) <= 0) {
+        ossl_err("ecdh derive (bound)"); goto done;
+    }
+
+    /* info = "anon-sec-net-v1" ||
+     * client_pub || node_pub || port(2B BE) || role(1B). Fixed-length
+     * fields throughout (EC_PUBKEY_LEN is constant, port/role are fixed
+     * width), so this concatenation is unambiguous, no length-prefix
+     * needed to prevent a boundary-shifting collision between fields. */
+    static const uint8_t salt[32] = {0};
+    static const char    label[]  = "anon-sec-net-v1";
+    uint8_t info[sizeof(label) - 1 + EC_PUBKEY_LEN + EC_PUBKEY_LEN + 2 + 1];
+    size_t  off = 0;
+    memcpy(info + off, label, sizeof(label) - 1); off += sizeof(label) - 1;
+    memcpy(info + off, client_pub, EC_PUBKEY_LEN); off += EC_PUBKEY_LEN;
+    memcpy(info + off, node_pub,   EC_PUBKEY_LEN); off += EC_PUBKEY_LEN;
+    info[off++] = (uint8_t)(port >> 8);
+    info[off++] = (uint8_t)(port & 0xFF);
+    info[off++] = role;
+
+    kdf  = EVP_KDF_fetch(NULL, "HKDF", NULL);
+    kctx = kdf ? EVP_KDF_CTX_new(kdf) : NULL;
+    if (!kctx) { ossl_err("hkdf ctx (bound)"); goto done; }
+
+    OSSL_PARAM kp[] = {
+        OSSL_PARAM_utf8_string(OSSL_KDF_PARAM_DIGEST, "SHA256",              0),
+        OSSL_PARAM_octet_string(OSSL_KDF_PARAM_KEY,   shared,    shared_len   ),
+        OSSL_PARAM_octet_string(OSSL_KDF_PARAM_SALT,  (void*)salt,sizeof(salt)),
+        OSSL_PARAM_octet_string(OSSL_KDF_PARAM_INFO,  info,      sizeof(info) ),
+        OSSL_PARAM_END
+    };
+    if (EVP_KDF_derive(kctx, out_key->key, AES_KEY_LEN, kp) <= 0) {
+        ossl_err("hkdf derive (bound)"); goto done;
+    }
+
+    rc = 0;
+done:
+    OPENSSL_cleanse(shared, sizeof(shared));
+    EVP_KDF_CTX_free(kctx);
+    EVP_KDF_free(kdf);
+    EVP_PKEY_CTX_free(dctx);
+    EVP_PKEY_free(remote);
+    return rc;
+}
+
 void crypto_ecdh_free(ecdh_keypair_t *kp) {
     if (kp && kp->pkey) {
         EVP_PKEY_free(kp->pkey);
@@ -164,7 +239,167 @@ int crypto_pubkey_load(uint8_t out[EC_PUBKEY_LEN], const char *path) {
     return ok ? 0 : -1;
 }
 
-/* -- AES-256-GCM ---------------------------------------------------------- */
+int crypto_pubkey_pin_check(uint16_t port, const uint8_t pubkey[EC_PUBKEY_LEN],
+                             const char *pin_dir) {
+    if (!pubkey || !pin_dir) return -1;
+
+    /* Report mkdir()'s specific failure cause when it isn't the
+     * expected EEXIST, rather than letting it surface only as an opaque
+     * pin-store error later with no mention of the directory itself. */
+    if (mkdir(pin_dir, 0700) != 0 && errno != EEXIST) {
+        fprintf(stderr, "[crypto] mkdir(%s) failed: %s\n", pin_dir, strerror(errno));
+    }
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/pinned_%u.pub", pin_dir, (unsigned)port);
+
+    uint8_t existing[EC_PUBKEY_LEN];
+    if (crypto_pubkey_load(existing, path) == 0) {
+        if (crypto_memcmp(existing, pubkey, EC_PUBKEY_LEN) != 0) {
+            fprintf(stderr,
+                    "[crypto] PIN MISMATCH for port %u, key differs from "
+                    "the one pinned on first connection. Rejecting: this is "
+                    "what an active MITM substituting its own key looks "
+                    "like. Delete %s to re-pin if the node's key legitimately "
+                    "changed.\n", (unsigned)port, path);
+            return -1;
+        }
+        return 0;
+    }
+
+    /* No existing pin, trust-on-first-use. */
+    ecdh_keypair_t tmp = {0};
+    memcpy(tmp.pubkey_bytes, pubkey, EC_PUBKEY_LEN);
+    if (crypto_pubkey_save(&tmp, path) != 0) {
+        fprintf(stderr, "[crypto] pin store failed for port %u (%s)\n",
+                (unsigned)port, path);
+        return -1;
+    }
+    return 0;
+}
+
+/*, Node identity signing ---------------------------- */
+
+int crypto_sign_keygen(ecdh_keypair_t *kp) {
+    /* Same EC/P-256 generation mechanism as crypto_ecdh_keygen(), see
+     * crypto.h's comment above crypto_sign_keygen() for why this must
+     * not be used interchangeably with an ECDH session keypair despite
+     * the identical generation code. */
+    return crypto_ecdh_keygen(kp);
+}
+
+int crypto_identity_load_or_create(ecdh_keypair_t *kp, const char *path) {
+    if (!kp || !path) return -1;
+    kp->pkey = NULL;
+
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        EVP_PKEY *pkey = PEM_read_PrivateKey(f, NULL, NULL, NULL);
+        fclose(f);
+        if (!pkey) {
+            fprintf(stderr, "[crypto] identity key at %s is corrupt/unreadable\n", path);
+            return -1;
+        }
+        size_t pub_len = EC_PUBKEY_LEN;
+        if (!EVP_PKEY_get_octet_string_param(pkey, OSSL_PKEY_PARAM_PUB_KEY,
+                                             kp->pubkey_bytes, EC_PUBKEY_LEN,
+                                             &pub_len)
+            || pub_len != EC_PUBKEY_LEN) {
+            ossl_err("identity load export pubkey");
+            EVP_PKEY_free(pkey);
+            return -1;
+        }
+        kp->pkey = pkey;
+        return 0;
+    }
+
+    /* No existing identity key, generate one and persist it. This is
+     * the ONLY keypair in this codebase meant to survive process
+     * restart; every other keygen call in this file is deliberately
+     * fresh every time. */
+    if (crypto_sign_keygen(kp) != 0) return -1;
+
+    /* open() with O_CREAT|O_EXCL and an explicit mode sets the
+     * permissions atomically at creation, unlike a fopen()+chmod()
+     * sequence, which would leave the file at the default fopen() mode
+     * for the window between creation and chmod(). O_EXCL also rejects
+     * a symlink/hardlink planted at this path ahead of time. */
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (fd < 0) {
+        fprintf(stderr, "[crypto] cannot create identity key file %s: %s\n",
+                path, strerror(errno));
+        crypto_ecdh_free(kp);
+        return -1;
+    }
+    FILE *out = fdopen(fd, "wb");
+    if (!out) {
+        fprintf(stderr, "[crypto] fdopen failed for identity key file %s\n", path);
+        close(fd);
+        crypto_ecdh_free(kp);
+        return -1;
+    }
+    int ok = PEM_write_PrivateKey(out, kp->pkey, NULL, NULL, 0, NULL, NULL);
+    fclose(out);
+    if (!ok) {
+        ossl_err("identity key save");
+        crypto_ecdh_free(kp);
+        return -1;
+    }
+    return 0;
+}
+
+int crypto_sign(const ecdh_keypair_t *identity_kp,
+                 const uint8_t *msg, size_t msg_len,
+                 uint8_t *sig, size_t sig_buf_len) {
+    if (!identity_kp || !identity_kp->pkey || !msg || !sig) return -1;
+
+    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
+    if (!mctx) { ossl_err("sign ctx"); return -1; }
+
+    int rc = -1;
+    size_t sig_len = sig_buf_len;
+    if (EVP_DigestSignInit(mctx, NULL, EVP_sha256(), NULL, identity_kp->pkey) <= 0 ||
+        EVP_DigestSign(mctx, sig, &sig_len, msg, msg_len) <= 0) {
+        ossl_err("sign");
+        goto done;
+    }
+    rc = (int)sig_len;
+done:
+    EVP_MD_CTX_free(mctx);
+    return rc;
+}
+
+int crypto_verify(const uint8_t identity_pubkey[EC_PUBKEY_LEN],
+                   const uint8_t *msg, size_t msg_len,
+                   const uint8_t *sig, size_t sig_len) {
+    if (!identity_pubkey || !msg || !sig || sig_len == 0) return -1;
+
+    EVP_PKEY *pkey = import_pubkey(identity_pubkey);
+    if (!pkey) return -1;
+
+    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
+    if (!mctx) { ossl_err("verify ctx"); EVP_PKEY_free(pkey); return -1; }
+
+    int rc = -1;
+    if (EVP_DigestVerifyInit(mctx, NULL, EVP_sha256(), NULL, pkey) <= 0) {
+        ossl_err("verify init");
+        goto done;
+    }
+    /* EVP_DigestVerify returns 1 on a valid signature, 0 on an invalid
+     * one, <0 on a different error, all non-1 outcomes are "reject",
+     * not just <0. */
+    if (EVP_DigestVerify(mctx, sig, sig_len, msg, msg_len) != 1) {
+        rc = -1;
+    } else {
+        rc = 0;
+    }
+done:
+    EVP_MD_CTX_free(mctx);
+    EVP_PKEY_free(pkey);
+    return rc;
+}
+
+/*, AES-256-GCM ---------------------------------------------------------- */
 
 int crypto_aes_encrypt(const aes_key_t *key,
                        const uint8_t   *plaintext,  size_t plaintext_len,
@@ -245,17 +480,7 @@ done:
     return ret;
 }
 
-/* -- Utilities ------------------------------------------------------------ */
-
-void crypto_hexdump(const char *label, const uint8_t *data, size_t len) {
-    fprintf(stderr, "[%s] %zu bytes:\n  ", label, len);
-    for (size_t i = 0; i < len; i++) {
-        fprintf(stderr, "%02x", data[i]);
-        if ((i+1) % 32 == 0 && i+1 < len) fprintf(stderr, "\n  ");
-        else if ((i+1) %  8 == 0 && i+1 < len) fprintf(stderr, "  ");
-    }
-    fprintf(stderr, "\n");
-}
+/*, Utilities ------------------------------------------------------------ */
 
 int crypto_memcmp(const void *a, const void *b, size_t n) {
     const uint8_t *p = a, *q = b;

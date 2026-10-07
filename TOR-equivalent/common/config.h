@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 /*
- * Anon-Sec-Net v2 -- Configuration
+ * Anon-Sec-Net v2, Configuration
  *
  * Client paths:
  *   Sending:   Client -> MN1(9004) -> MN2(9005) -> MN3(9006) -> SvcGW(9010)
@@ -17,45 +17,44 @@
  * No border nodes. MN1 and MNi are the only nodes that see Client/Sender IP.
  */
 
-/* -- Client sending path -------------------------------------------------- */
+/*, Client sending path -------------------------------------------------- */
 #define PORT_MIX_1            9004
 #define PORT_MIX_2            9005
 #define PORT_MIX_3            9006
 
-/* -- Client receiving path ------------------------------------------------ */
+/*, Client receiving path ------------------------------------------------ */
 #define PORT_MIX_A            9007
 #define PORT_MIX_B            9008
 #define PORT_MIX_C            9009
 
-/* -- Gateways ------------------------------------------------------------- */
+/*, Gateways ------------------------------------------------------------- */
 #define PORT_SERVICE_GW       9010
 #define PORT_CACHE_SERVER     9012
 
-/* -- Sender sending path -------------------------------------------------- */
+/*, Sender sending path -------------------------------------------------- */
 #define PORT_MIX_I            9030
 #define PORT_MIX_II           9031
 #define PORT_MIX_III          9032
 
-/* -- Sender receiving path ------------------------------------------------ */
+/*, Sender receiving path ------------------------------------------------ */
 #define PORT_MIX_X            9033
 #define PORT_MIX_Y            9034
 #define PORT_MIX_Z            9035
 
-/* -- Response ports ------------------------------------------------------- */
+/*, Response ports ------------------------------------------------------- */
 #define PORT_CLIENT           9001
 #define PORT_SENDER           9015
 #define CLIENT_RESPONSE_PORT  9020
 #define SENDER_RESPONSE_PORT  9016
 
 #define LOCALHOST             "127.0.0.1"
-#define PUBKEY_DIR            "C:\\Temp\\ansn"
 
-/* -- Protocol modes ------------------------------------------------------- */
+/*, Protocol modes ------------------------------------------------------- */
 #define MODE_EXTEND           0x01
 #define MODE_DATA             0x02
 #define MODE_RETURN           0x03
 
-/* -- Sphinx outbound packet layout ----------------------------------------
+/*, Sphinx outbound packet layout ----------------------------------------
  *
  * Outbound (Client -> MN1 -> MN2 -> MN3 -> SG):
  *
@@ -76,7 +75,7 @@
  *
  *   RETURN HEADER: 3 x RETURN_BLOCK_SIZE = 3 x 54 = 162 bytes
  *     Each block: enc_addr(6) + mac(16) + hint(32) = 54
- *     No blinding key -- return path has no payload blinding.
+ *     No blinding key, return path has no payload blinding.
  *
  *   RETURN PAYLOAD: 862 bytes
  *     enc_K_R-SG-B( response )
@@ -117,33 +116,33 @@
 #define RETURN_HDR_IN_PAYLOAD 233    /* 65+6+162   */
 #define MAX_INNER_PAYLOAD     499    /* 763-3-233-28 */
 
-/* -- Flags ---------------------------------------------------------------- */
+/*, Flags ---------------------------------------------------------------- */
 #define COVER_FLAG            0x01   /* header flag: MN1 drops cover pkt  */
 #define PKT_REAL              0x00
 #define PKT_DUMMY             0x01
 #define PKT_DEST_SERVICE      0x00
 #define PKT_DEST_PUBLIC       0x02
 
-/* -- Crypto --------------------------------------------------------------- */
+/*, Crypto --------------------------------------------------------------- */
 #define AES_KEY_LEN           32
 #define HMAC_KEY_LEN          32
 #define PATH_HOPS             4      /* MN1/MNi, MN2/MNii, MN3/MNiii, SG  */
 
-/* -- Timing --------------------------------------------------------------- */
+/*, Timing --------------------------------------------------------------- */
 #define DUMMY_INTERVAL_MS     100
 #define CONNECT_TIMEOUT_S     5
 #define BACKLOG               32
 
-/* -- Packet types --------------------------------------------------------- */
+/*, Packet types --------------------------------------------------------- */
 #define TYPE_SETUP            0x00   /* session setup: send keys to SG      */
 #define TYPE_GET              0x01
 #define TYPE_PUT              0x02
 
-/* -- Session roles (sent in MODE_EXTEND to identify A vs B path) --------- */
+/*, Session roles (sent in MODE_EXTEND to identify A vs B path) --------- */
 #define SESSION_ROLE_A        0x01   /* sending path session (K_R-SG-A)    */
 #define SESSION_ROLE_B        0x02   /* receiving path session (K_R-SG-B)  */
 
-/* -- Labels --------------------------------------------------------------- */
+/*, Labels --------------------------------------------------------------- */
 #define LABEL_HEADER_ENC      "ansn-hdrenc-v1"
 #define LABEL_HEADER_MAC      "ansn-hdrmac-v1"
 #define LABEL_BLIND_KEY       "ansn-blind-v1"

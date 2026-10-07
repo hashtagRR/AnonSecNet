@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-plot_figure2.py  --  Anon-Sec-Net v2  Figure 2: Per-hop Processing Latency
+plot_figure2.py: Anon-Sec-Net v2  Figure 2: Per-hop Processing Latency
 
-Reads figure5_per_hop_latency.csv and produces figure2_perhop_latency.pdf/.png.
+Reads a per-hop timing CSV and produces figure2_perhop_latency.pdf/.png.
+The default is the curated file in ../results/. A fresh run of
+tests/ASN/sweep_figure2.py writes hop_timing_figure2.csv, which can be
+passed with --csv.
 
 Usage:
-    python plot_figure2.py [--csv figure5_per_hop_latency.csv] [--out-dir .]
+    python plot_figure2.py [--csv ../results/figure2_perhop_latency_dev_workstation.csv] [--out-dir .]
 """
 
 import argparse
@@ -20,10 +23,15 @@ import matplotlib.ticker as ticker
 import numpy as np
 
 
-# ── colour / style constants ─────────────────────────────────────────────────
+# -- colour / style constants -------------------------------------------------
+# Matches Submission_revised/plotscripts/plot_fig_perhop.py's palette,
+# this internal script previously used mismatched
+# tab10 defaults (asn=blue, tor=orange), the reverse of the submission
+# figure's convention (asn=vermillion, tor=blue), which could visually
+# mislead anyone cross-referencing the two.
 COLORS = {
-    "asn":     "#1f77b4",   # blue
-    "tor":     "#ff7f0e",   # orange
+    "asn":     "#D55E00",   # vermillion
+    "tor":     "#0072B2",   # blue
     "nonanon": "#2ca02c",   # green
 }
 LABELS = {
@@ -56,7 +64,7 @@ def read_csv(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--csv",     default="figure5_per_hop_latency.csv")
+    parser.add_argument("--csv",     default="../results/figure2_perhop_latency_dev_workstation.csv")
     parser.add_argument("--out-dir", default=".")
     args = parser.parse_args()
 

@@ -1,0 +1,20 @@
+# Build artifacts
+*.o
+*.exe
+*.out
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Runtime/generated state (not part of the source tree)
+*.pid
+*.log
+client_rate_tier.txt
+sender_rate_tier.txt
+client_guard_*.txt
+sender_pins/
+client_pins/
+node_pool_selftest_guard_*.tmp

@@ -1,4 +1,4 @@
-/* tor_bench_fig2_perhop.c  --  Figure 2: Per-Hop Processing Latency (Tor-equivalent)
+/* tor_bench_fig2_perhop.c: Figure 2: Per-Hop Processing Latency (Tor-equivalent)
  *
  * Section 13.1 of AnonSecNet_Implementation_Spec:
  *   "Per-hop cryptographic processing overhead for Anon-Sec-Net versus the
@@ -64,7 +64,7 @@ static double timer_us(void) {
 }
 #endif
 
-/* ── Configuration ───────────────────────────────────────────────────────── */
+/* Configuration */
 #define ITERATIONS    5000
 #define NUM_SIZES     11
 
@@ -73,7 +73,7 @@ static const int PAYLOAD_SIZES[NUM_SIZES] = {
     64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536
 };
 
-/* ── Statistics ──────────────────────────────────────────────────────────── */
+/* Statistics */
 typedef struct {
     double mean;
     double ci95;
@@ -108,14 +108,14 @@ static stats_t compute_stats(double *s, int n) {
     return st;
 }
 
-/* ── AES-256-CTR per-hop decrypt (Tor relay cell model) ──────────────────── *
+/* AES-256-CTR per-hop decrypt (Tor relay cell model) *
  *
  * Tor relay cells use AES-128-CTR for onion decryption. We use AES-256-CTR
  * to match our codebase key length. The per-hop cost model is the same:
  *   - One CTR keystream generation over the full payload
  *   - No authentication tag on the payload (tag lives at the circuit level)
  *
- * Reference: Tor spec §5.4.3 "Sending relay cells" — each relay XORs
+ * Reference: Tor spec §5.4.3 "Sending relay cells": each relay XORs
  * the cell body with the running AES-CTR keystream.
  */
 static void tor_perhop_ctr(const uint8_t *key, const uint8_t *in,
@@ -130,7 +130,7 @@ static void tor_perhop_ctr(const uint8_t *key, const uint8_t *in,
     EVP_CIPHER_CTX_free(ctx);
 }
 
-/* ── No-anonymity baseline: single AES-256-GCM encrypt ──────────────────── *
+/* No-anonymity baseline: single AES-256-GCM encrypt *
  * Represents an encrypted-but-not-anonymous forwarding hop.
  * This matches the existing nonanon rows in the CSV.
  */
@@ -139,7 +139,7 @@ static int nonanon_perhop(const aes_key_t *key, const uint8_t *in, int len,
     return crypto_aes_encrypt(key, in, (size_t)len, out, out_size);
 }
 
-/* ── Main ───────────────────────────────────────────────────────────────── */
+/* Main */
 int main(void) {
     timer_init();
 
@@ -153,7 +153,7 @@ int main(void) {
     double *samples = malloc(ITERATIONS * sizeof(double));
     if (!samples) { fprintf(stderr, "OOM\n"); return 1; }
 
-    /* ── Tor-equivalent: AES-256-CTR per-hop ───────────────────────────── */
+    /* Tor-equivalent: AES-256-CTR per-hop */
     {
         uint8_t key[AES_KEY_LEN];
         RAND_bytes(key, AES_KEY_LEN);
@@ -186,9 +186,9 @@ int main(void) {
         fprintf(stderr, "[fig2] tor CTR done\n");
     }
 
-    /* ── No-anonymity baseline: GCM encrypt ────────────────────────────── *
+ /* No-anonymity baseline: GCM encrypt *
      * Included so this binary is self-contained and can reproduce all rows.
-     * These match the nonanon rows already in the CSV — use to verify
+     * These match the nonanon rows already in the CSV, use to verify
      * consistency between runs.
      */
     {

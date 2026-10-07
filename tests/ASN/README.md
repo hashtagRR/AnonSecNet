@@ -1,4 +1,4 @@
-# tests/ASN — Instrumented Nodes and Measurement Sweeps
+# tests/ASN: Instrumented Nodes and Measurement Sweeps
 
 Instrumented versions of the ASN nodes and the Python sweep scripts used to collect the paper's measurements. The instrumented nodes emit timing data to CSV; the sweep scripts orchestrate repeated runs.
 
@@ -18,17 +18,22 @@ The standard (non-instrumented) implementations are in [`../../ASN/`](../../ASN/
 
 ### Sweep scripts (Python)
 
-| Script | Figure/Table | Live nodes required |
+Script names are historical (kept for compatibility with existing
+commands/CSVs) and no longer match the paper's own Table/Figure
+numbering, which has shifted across revisions; what each script
+measures is stable even when the paper's numbering isn't.
+
+| Script | Measures | Live nodes required |
 |--------|-------------|---------------------|
-| `sweep_figure2.py` | Figure 5 — per-hop latency | Yes |
-| `sweep_figure3.py` | Figure 6 — path construction time | Yes |
-| `sweep_figure5.py` | Figure 7 — cover traffic overhead | Yes |
-| `ASN_sweep_table2.py` | Table 7 — throughput | Yes |
-| `bench_figure2.c` | Figure 5 — in-process crypto microbenchmark | No |
+| `sweep_figure2.py` | Per-hop cryptographic processing latency | Yes |
+| `sweep_figure3.py` | Path construction (session setup) time | Yes |
+| `sweep_figure5.py` | Cover traffic bandwidth overhead | Yes |
+| `ASN_sweep_table2.py` | Aggregate throughput vs. concurrent sessions | Yes |
+| `bench_figure2.c` | Per-hop latency: in-process crypto microbenchmark | No |
 
 ### Utilities
 
-`check_live.py` / `check_live2.py` — verify all nodes are reachable before starting a sweep.
+`check_live.py` / `check_live2.py`: verify all nodes are reachable before starting a sweep.
 
 ---
 
@@ -47,7 +52,27 @@ Python deps: `pip install matplotlib numpy scipy cryptography`
 
 ## Starting the nodes
 
-All sweep scripts require the instrumented binaries to be running. Start in this order, each in a separate terminal:
+All sweep scripts require the instrumented binaries to be running.
+Easiest path, from this directory:
+
+```bash
+./start_nodes.sh   # launches all 14 processes backgrounded, waits for
+                    # every port to accept connections, records PIDs to
+                    # nodes.pid
+...                 # run your sweep(s)
+./stop_nodes.sh     # kills everything start_nodes.sh started
+```
+
+Hardened-build (`ASN_LOOPIX_MIXING`) and pool-mixing (`ASN_POOL_MIXING`)
+A/B variants have their own matching pairs: `start_nodes_hardened.sh` /
+`stop_nodes_hardened.sh` and `start_nodes_pool.sh` / `stop_nodes_pool.sh`
+(the latter launches the M=100-node pool topology for the plain,
+non-instrumented `client.exe`/`mix_node.exe` demo path; see
+[`../../ASN/README.md`](../../ASN/README.md#running). It is not the
+instrumented benchmark pipeline this file otherwise covers.)
+
+Equivalently, by hand, each in a separate terminal, on the current
+fixed ports (`common/config.h`'s `PORT_MIX_I..Z`):
 
 ```bash
 mix_node_instrumented.exe 9004   # client send
@@ -56,12 +81,12 @@ mix_node_instrumented.exe 9006
 mix_node_instrumented.exe 9007   # client return
 mix_node_instrumented.exe 9008
 mix_node_instrumented.exe 9009
-mix_node_instrumented.exe 9030   # sender send
-mix_node_instrumented.exe 9031
-mix_node_instrumented.exe 9032
-mix_node_instrumented.exe 9033   # sender return
-mix_node_instrumented.exe 9034
-mix_node_instrumented.exe 9035
+mix_node_instrumented.exe 9040   # sender send
+mix_node_instrumented.exe 9041
+mix_node_instrumented.exe 9042
+mix_node_instrumented.exe 9043   # sender return
+mix_node_instrumented.exe 9044
+mix_node_instrumented.exe 9045
 service_gateway_instrumented.exe
 cache_server.exe
 ```
@@ -72,17 +97,20 @@ Check everything is up: `python check_live.py`
 
 ## Running the sweeps
 
-### Figure 5 — per-hop latency
+### Per-hop cryptographic processing latency
 
 ```bash
-python sweep_figure2.py --reps 1000 --hop-csv hop_timing.csv
+python sweep_figure2.py --reps 1000 --out-dir .
 # quick smoke test:
 python sweep_figure2.py --reps 50
 ```
 
-Output: `figure5_per_hop_latency.csv` — columns: `payload_bytes, protocol, n, mean_us, ci95_us, min_us, max_us, p50_us, p95_us`
+(There is no `--hop-csv` flag: the output filename is fixed; use `--out-dir`
+to change where it's written.)
 
-### Figure 6 — path construction time
+Output: `hop_timing_figure2.csv`, columns: `payload_bytes, protocol, n, mean_us, ci95_us, min_us, max_us, p50_us, p95_us`
+
+### Path construction time
 
 The sweep launches `client_instrumented.exe` itself.
 
@@ -94,9 +122,9 @@ python sweep_figure3.py --reps 8 --client-exe client_instrumented.exe
 python sweep_figure3.py --reps 1000 --client-exe client_instrumented.exe
 ```
 
-Output: `figure3_path_construction.csv` (ASN summary row; add Tor row by running `../../tests/TOR/tor_bench_fig3.exe` and appending)
+Output: `figure3_asn.csv` (ASN summary row; add Tor row by running `../../tests/TOR/tor_bench_fig3.exe` and appending)
 
-### Figure 7 — cover traffic overhead
+### Cover traffic bandwidth overhead
 
 Seed the cache first: `python ../../ASN/scripts/seed_cache.py`
 
@@ -108,7 +136,7 @@ python sweep_figure5.py --client-exe client_instrumented.exe --duration 10
 
 Output: `figure7_cover_overhead_120s.csv` and `figure7_cover_overhead_60s.csv`
 
-### Table 7 — throughput
+### Aggregate throughput
 
 ```bash
 # safe with default MAX_SESSIONS=64
@@ -124,9 +152,9 @@ Output: `table2_throughput.csv`
 
 ## Increasing MAX_SESSIONS
 
-The default `#define MAX_SESSIONS 64` in `mix_node_instrumented.c` limits concurrent sessions. For Table 7 with N > 8:
+The default `#define MAX_SESSIONS 64` in `mix_node_instrumented.c` limits concurrent sessions. For the throughput sweep with N > 8:
 
-1. Edit `../../ASN/mix_node/mix_node_instrumented.c`: change `MAX_SESSIONS 64` → `MAX_SESSIONS 1024`
+1. Edit `../../ASN/mix_node/mix_node_instrumented.c`: change `MAX_SESSIONS 64` to `MAX_SESSIONS 1024`
 2. `cd ../../ASN && make instrumented`
 3. Restart all node instances
 
@@ -134,7 +162,7 @@ The default `#define MAX_SESSIONS 64` in `mix_node_instrumented.c` limits concur
 
 ## In-process crypto microbenchmark
 
-`bench_figure2.c` measures raw AES-CTR blinding cost with no sockets — a lower bound on per-hop latency.
+`bench_figure2.c` measures raw AES-CTR blinding cost with no sockets: a lower bound on per-hop latency.
 
 ```bash
 cd ../../ASN
@@ -146,12 +174,17 @@ make bench_figure2.exe
 
 ## Output files
 
-| File | Produced by | Paper |
+| File | Produced by | Measures |
 |------|------------|-------|
-| `figure5_per_hop_latency.csv` | `sweep_figure2.py` | Figure 5 |
-| `figure3_path_construction.csv` | `sweep_figure3.py` | Figure 6 |
-| `figure7_cover_overhead_120s.csv` | `sweep_figure5.py` | Figure 7 |
-| `figure7_cover_overhead_60s.csv` | `sweep_figure5.py` | Figure 7 |
-| `table2_throughput.csv` | `ASN_sweep_table2.py` | Table 7 |
+| `hop_timing_figure2.csv` | `sweep_figure2.py` | Per-hop cryptographic processing latency |
+| `figure3_asn.csv` (+ `figure3_tor.csv`) | `sweep_figure3.py` | Path construction time |
+| `figure7_cover_overhead_120s.csv` | `sweep_figure5.py` | Cover traffic bandwidth overhead |
+| `figure7_cover_overhead_60s.csv` | `sweep_figure5.py` | Cover traffic bandwidth overhead |
+| `table2_throughput.csv` | `ASN_sweep_table2.py` | Aggregate throughput |
 
-Pre-collected copies are in [`../../ASN/results/`](../../ASN/results/).
+The sweep scripts above write these CSVs into the current directory
+when run. A curated set of already-collected results backing the
+paper's published numbers (multiple machine specs, since several of
+these are cross-machine comparisons) is available in
+[`../../results/`](../../results/) if you want to check a
+number without re-running the full sweep.

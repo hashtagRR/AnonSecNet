@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-analyse_figure4.py  --  Anon-Sec-Net v2  Figure 4 Analyser
+*** SUPERSEDED, DO NOT RUN ***
+Reads output from the equally-superseded `montecarlo_figure4.py` (retracted
+f^6 model), see that file's own warning header for the current
+replacement.
+***
+
+analyse_figure4.py: Anon-Sec-Net v2  Figure 4 Analyser
 
 Reads figure4_anonymity_set.csv produced by montecarlo_figure4.py and prints
 a formatted summary matching the style of analyse_measurements.py.
@@ -24,7 +30,7 @@ def load_figure4(path):
         for line in fp:
             if line.startswith("#"):
                 continue
-            break  # first non-comment line is the header -- let DictReader handle it
+            break  # first non-comment line is the header, let DictReader handle it
         fp.seek(0)
         # skip comment lines manually then hand off to DictReader
         lines = [l for l in fp if not l.startswith("#")]
@@ -81,7 +87,7 @@ def main():
     args = parser.parse_args()
     d = args.dir
 
-    sep("Figure 4: Anonymity Set Size  --  Monte Carlo vs Theory")
+    sep("Figure 4: Anonymity Set Size, Monte Carlo vs Theory")
 
     path = os.path.join(d, "figure4_anonymity_set.csv")
     rows = load_figure4(path)
@@ -97,9 +103,9 @@ def main():
     print(f"  ASN bound     : f^6   (dual path, 3 hops each)")
     print(f"  Tor-eq bound  : f^3   (single path, 3 hops)")
 
-    # ── Key manuscript claim: f=0.10 ────────────────────────────────────
+    # -- Key manuscript claim: f=0.10 ------------------------------------
     print()
-    print("  ── Key claim (f = 0.10) ────────────────────────────────────")
+    print("  -- Key claim (f = 0.10) ------------------------------------")
     for r in rows:
         if abs(r["f"] - 0.10) < 1e-6:
             print(f"  ASN  theory = {r['asn_theory']:.2e}   "
@@ -112,7 +118,7 @@ def main():
                       f"(spec: ~1000x at f=0.10)")
             break
 
-    # ── Full sweep table ─────────────────────────────────────────────────
+    # -- Full sweep table -------------------------------------------------
     print()
     print(f"  {'f':>6}  {'ASN theory':>12}  {'ASN MC':>12}  {'±CI95':>10}  "
           f"{'TOR theory':>12}  {'TOR MC':>12}  {'±CI95':>10}  {'Agree?':>8}")
@@ -130,9 +136,9 @@ def main():
             f"{agree_asn:>8}"
         )
 
-    # ── Convergence quality ───────────────────────────────────────────────
+    # -- Convergence quality -----------------------------------------------
     print()
-    print("  ── MC convergence quality ──────────────────────────────────")
+    print("  -- MC convergence quality ----------------------------------")
     mismatches = []
     for r in rows:
         ag = mc_agreement(r["asn_theory"], r["asn_mc"], r["asn_mc_ci95"])
@@ -145,10 +151,10 @@ def main():
         print(f"  {len(mismatches)} f-value(s) outside 1.5 × CI95:")
         for f_val, ag in mismatches:
             print(f"    f={f_val:.3f}  {ag}")
-        print(f"  Note: deviations at low-f are expected -- MC resolution")
+        print(f"  Note: deviations at low-f are expected, MC resolution")
         print(f"  limited to ~1/{n:,} = {1/n:.2e} per session.")
 
-    # ── MC resolution note ───────────────────────────────────────────────
+    # -- MC resolution note -----------------------------------------------
     mc_floor = 1.0 / n
     print()
     print(f"  MC resolution floor : {mc_floor:.2e}  (1 event per {n:,} sessions)")
@@ -156,7 +162,7 @@ def main():
     if low_f_rows:
         f_vals = [r["f"] for r in low_f_rows]
         print(f"  ASN theory < MC floor at f ∈ {[f'{v:.2f}' for v in f_vals]}")
-        print(f"  These points will show MC=0 in the plot -- expected behaviour.")
+        print(f"  These points will show MC=0 in the plot, expected behaviour.")
         print(f"  Use --sessions 100000 to push the floor to {1/100000:.2e} if needed.")
 
     print()

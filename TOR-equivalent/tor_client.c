@@ -1,8 +1,8 @@
-/* tor_client.c  --  Tor-Equivalent Baseline Client
+/* tor_client.c: Tor-Equivalent Baseline Client
  *
  * Builds a 3-hop circuit (TN1 -> TN2 -> TN3) using direct ECDHE
  * handshakes to each node (same simplification as the Anon-Sec-Net
- * simulation -- noted in Section V.A of the manuscript).
+ * simulation: noted in Section V.A of the manuscript).
  *
  * Then sends data through layered AES-256-GCM encryption
  * (one full encrypt per hop, outermost = TN1's key).
@@ -25,9 +25,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
+#include "common/posix_compat.h"
 
-/* ── Per-hop session keys (established during circuit build) ──────────── */
+/* Per-hop session keys (established during circuit build) */
 typedef struct {
     aes_key_t key;
     uint8_t   hint[TOR_HINT_BYTES];
@@ -36,7 +36,7 @@ typedef struct {
 
 static hop_key_t g_hops[TOR_MAX_HOPS];  /* [0]=TN1, [1]=TN2, [2]=TN3  */
 
-/* ── Timing helpers ───────────────────────────────────────────────────── */
+/* Timing helpers */
 static double qpc_freq = 0.0;
 
 static double time_now_ms(void) {
@@ -45,7 +45,7 @@ static double time_now_ms(void) {
     return (double)t.QuadPart / qpc_freq * 1000.0;
 }
 
-/* ── Logging ──────────────────────────────────────────────────────────── */
+/* Logging */
 static void log_msg(const char *msg) {
     printf("[TOR-CLIENT] %s\n", msg); fflush(stdout);
 }
@@ -53,11 +53,11 @@ static void log_err(const char *msg) {
     fprintf(stderr, "[TOR-CLIENT] ERROR: %s\n", msg); fflush(stderr);
 }
 
-/* ── Extend to a single node (direct connection) ─────────────────────── */
+/* Extend to a single node (direct connection) */
 /*
  * Wire format sent to node:
  *   [mode 1B = TOR_MODE_EXTEND]
- *   [target_port 2B = 0]   (don't relay further)
+ *   [target_port 2B = 0]   (do not relay further)
  *   [client_pubkey 65B]
  *
  * Wire format received:
@@ -98,7 +98,7 @@ static int extend_to_node(uint16_t node_port, ecdh_keypair_t *eph,
     return 0;
 }
 
-/* ── Build circuit: direct ECDHE with each node ──────────────────────── */
+/* Build circuit: direct ECDHE with each node */
 static int build_circuit(void) {
     static const uint16_t ports[TOR_MAX_HOPS] = {
         TOR_PORT_TN1, TOR_PORT_TN2, TOR_PORT_TN3
@@ -130,7 +130,7 @@ static int build_circuit(void) {
     return 0;
 }
 
-/* ── Layered encryption for forward path ──────────────────────────────── */
+/* Layered encryption for forward path */
 /*
  * Build a cell by wrapping payload in 3 layers of GCM encryption:
  *   Layer 3 (innermost, TN3's key): enc(key3, SG_port + payload)
@@ -141,7 +141,7 @@ static int build_circuit(void) {
  */
 static int build_forward_cell(const uint8_t *payload, int payload_len,
                                uint8_t *out, int out_size) {
-    /* Layer 3: innermost — tells TN3 to forward to SG */
+    /* Layer 3: innermost, tells TN3 to forward to SG */
     int l3_pt_len = 2 + payload_len;
     uint8_t *l3_pt = malloc(l3_pt_len);
     if (!l3_pt) return -1;
@@ -160,7 +160,7 @@ static int build_forward_cell(const uint8_t *payload, int payload_len,
     free(l3_pt);
     if (l3_len < 0) { free(l3_enc); return -1; }
 
-    /* Layer 2: wraps hint3 + layer3 — tells TN2 to forward to TN3 */
+    /* Layer 2: wraps hint3 + layer3, tells TN2 to forward to TN3 */
     int l2_pt_len = 2 + TOR_HINT_BYTES + l3_len;
     uint8_t *l2_pt = malloc(l2_pt_len);
     if (!l2_pt) { free(l3_enc); return -1; }
@@ -181,7 +181,7 @@ static int build_forward_cell(const uint8_t *payload, int payload_len,
     free(l2_pt);
     if (l2_len < 0) { free(l2_enc); return -1; }
 
-    /* Layer 1: wraps hint2 + layer2 — tells TN1 to forward to TN2 */
+    /* Layer 1: wraps hint2 + layer2, tells TN1 to forward to TN2 */
     int l1_pt_len = 2 + TOR_HINT_BYTES + l2_len;
     uint8_t *l1_pt = malloc(l1_pt_len);
     if (!l1_pt) { free(l2_enc); return -1; }
@@ -217,7 +217,7 @@ static int build_forward_cell(const uint8_t *payload, int payload_len,
     return wire_len;
 }
 
-/* ── Peel response layers ─────────────────────────────────────────────── */
+/* Peel response layers */
 static int peel_response(const uint8_t *enc_data, int enc_len,
                           uint8_t *out, int out_size) {
     uint8_t *cur = malloc(enc_len);
@@ -246,7 +246,7 @@ static int peel_response(const uint8_t *enc_data, int enc_len,
     return cur_len;
 }
 
-/* ── Response listener thread ─────────────────────────────────────────── */
+/* Response listener thread */
 static DWORD WINAPI response_listener(LPVOID arg) {
     (void)arg;
 
@@ -264,7 +264,7 @@ static DWORD WINAPI response_listener(LPVOID arg) {
         if (net_recv_all(s, &mode, 1) != 0) { net_close(s); continue; }
 
         /* Response wire format (fixed): [hint TOR_HINT_BYTES][enc_len 2B][enc_data]
-         * The hint identifies the circuit — we don't need it for decryption
+         * The hint identifies the circuit, we do not need it for decryption
          * (we only have one circuit in this client) but we read it to stay
          * in sync with the wire format.                                    */
         uint8_t hint[TOR_HINT_BYTES];
@@ -304,7 +304,7 @@ static DWORD WINAPI response_listener(LPVOID arg) {
     return 0;
 }
 
-/* ── main ─────────────────────────────────────────────────────────────── */
+/* main */
 int main(void) {
     SetConsoleOutputCP(65001);
     if (net_init() != 0) return 1;
@@ -319,7 +319,7 @@ int main(void) {
     CloseHandle(rl);
     Sleep(200);
 
-    /* ── Build circuit ────────────────────────────────────────────────── */
+    /* Build circuit */
     double t0 = time_now_ms();
     if (build_circuit() != 0) {
         log_err("circuit build failed"); net_cleanup(); return 1;
@@ -330,7 +330,7 @@ int main(void) {
     snprintf(tbuf, sizeof(tbuf), "circuit built in %.3f ms", t1 - t0);
     log_msg(tbuf);
 
-    /* ── Send test data ───────────────────────────────────────────────── */
+    /* Send test data */
     const char *test_msg = "Hello from Tor-equivalent client!";
     int msg_len = (int)strlen(test_msg);
 

@@ -1,21 +1,37 @@
 /*
- * measure.h  --  Anon-Sec-Net v2 Measurement Harness
+ * measure.h: Anon-Sec-Net v2 Measurement Harness
  *
- * Provides four probes:
+ * Provides five probes:
  *   P1  MEASURE_HOP_BEGIN / MEASURE_HOP_END   per-hop crypto timer  (Figure 2)
  *   P2  MEASURE_SESSION_BEGIN / END            session setup timer   (Figure 3)
  *   P3  measure_link_bytes(is_cover, n)        byte counter          (Figure 5)
  *   P4  measure_sg_goodput(n)                  goodput counter       (Table 2)
+ *   P5  measure_hop_bytes(n)                   per-hop TOTAL byte
+ *                                               counter, real+cover
+ *                                               undifferentiated
+ *
+ * P5, unlike P3, does NOT split real vs cover, by design, since a mix
+ * node can't tell them apart. One P5 counter per process,
+ * incremented on every wire packet this node RECEIVES on its inbound
+ * link (forward or return direction), gives that specific link's total
+ * observable bandwidth. Deploy across mix_node_instrumented.c (every
+ * hop), service_gateway_instrumented.c (MN3->SG / forward inbound), and
+ * client_instrumented.c (MNa->Client / return inbound, a NEW counter
+ * distinct from P3's existing outbound-only one) to reconstruct the
+ * full per-link bandwidth picture end to end, see
+ * eval2/scripts/sweep_figure_bandwidth.py for the sweep that assembles
+ * these into one figure.
  *
  * Include this header in mix_node.c, client.c, and service_gateway.c.
  * Call measure_init() once at the start of main() in each process.
- * Call measure_flush() before exit (optional -- atexit also flushes).
+ * Call measure_flush() before exit (optional, atexit also flushes).
  *
  * Output files (written to current working directory):
- *   hop_timing.csv       -- us,<microseconds>
- *   session_setup.csv    -- ms,<milliseconds>
- *   link_bytes.csv       -- ts_ms,<epoch_ms>,cover,<n>,real,<n>
- *   sg_goodput.csv       -- ts_ms,<epoch_ms>,bps,<bits_per_second>
+ *   hop_timing.csv: us,<microseconds>
+ *   session_setup.csv: ms,<milliseconds>
+ *   link_bytes.csv: ts_ms,<epoch_ms>,cover,<n>,real,<n>
+ *   sg_goodput.csv: ts_ms,<epoch_ms>,bps,<bits_per_second>
+ *   hop_link_bytes.csv: ts_ms,<epoch_ms>,bps,<bits_per_second>  (P5)
  *
  * Thread safety: all functions are safe to call from multiple threads.
  */
@@ -23,11 +39,11 @@
 #ifndef MEASURE_H
 #define MEASURE_H
 
-#include <windows.h>
+#include "posix_compat.h"
 #include <stdio.h>
 #include <stdint.h>
 
-/* ── Internal state (one instance per process) ─────────────────────────── */
+/* Internal state (one instance per process) */
 
 typedef struct {
     /* P1: per-hop crypto timer */
@@ -51,6 +67,11 @@ typedef struct {
     CRITICAL_SECTION gp_lock;
     volatile LONGLONG gp_bytes;
 
+    /* P5: per-hop total link byte counter (real+cover undifferentiated) */
+    FILE            *hopbytes_fp;
+    CRITICAL_SECTION hopbytes_lock;
+    volatile LONGLONG hopbytes_total;
+
     /* QPC frequency, cached once */
     LARGE_INTEGER    qpc_freq;
 
@@ -59,13 +80,13 @@ typedef struct {
     volatile int     sampler_stop;
 } measure_ctx_t;
 
-/* Single global instance -- each process has its own copy */
+/* Single global instance, each process has its own copy */
 static measure_ctx_t g_mctx;
 
-/* ── Sampler thread: snapshots P3 and P4 every second ──────────────────── */
+/* Sampler thread: snapshots P3 and P4 every second */
 static DWORD WINAPI _measure_sampler(LPVOID arg) {
     (void)arg;
-    LONGLONG prev_cover = 0, prev_real = 0, prev_gp = 0;
+    LONGLONG prev_cover = 0, prev_real = 0, prev_gp = 0, prev_hopbytes = 0;
 
     while (!g_mctx.sampler_stop) {
         Sleep(200);
@@ -104,17 +125,33 @@ static DWORD WINAPI _measure_sampler(LPVOID arg) {
             fflush(g_mctx.gp_fp);
         }
         prev_gp = gp;
+
+        /* P5: per-hop total link bytes snapshot */
+        EnterCriticalSection(&g_mctx.hopbytes_lock);
+        LONGLONG hb = g_mctx.hopbytes_total;
+        LeaveCriticalSection(&g_mctx.hopbytes_lock);
+
+        if (g_mctx.hopbytes_fp) {
+            LONGLONG delta_bytes = hb - prev_hopbytes;
+            LONGLONG bps         = delta_bytes * 8 * 5;   /* bits per second */
+            fprintf(g_mctx.hopbytes_fp,
+                    "ts_ms,%lld,bps,%lld\n",
+                    (long long)now_ms,
+                    (long long)bps);
+            fflush(g_mctx.hopbytes_fp);
+        }
+        prev_hopbytes = hb;
     }
     return 0;
 }
 
-/* ── measure_init ────────────────────────────────────────────────────────
+/* measure_init
  * Call once in main().
  * pass_flags selects which probes to activate:
- *   MEASURE_P1  -- open hop_timing.csv     (use in mix_node)
- *   MEASURE_P2  -- open session_setup.csv  (use in client)
- *   MEASURE_P3  -- open link_bytes.csv     (use in client)
- *   MEASURE_P4  -- open sg_goodput.csv     (use in service_gateway)
+ *   MEASURE_P1: open hop_timing.csv     (use in mix_node)
+ *   MEASURE_P2: open session_setup.csv  (use in client)
+ *   MEASURE_P3: open link_bytes.csv     (use in client)
+ *   MEASURE_P4: open sg_goodput.csv     (use in service_gateway)
  *
  * Example:
  *   measure_init(MEASURE_P1);                   // mix_node
@@ -125,6 +162,7 @@ static DWORD WINAPI _measure_sampler(LPVOID arg) {
 #define MEASURE_P2  0x02
 #define MEASURE_P3  0x04
 #define MEASURE_P4  0x08
+#define MEASURE_P5  0x10
 
 static inline void measure_init(unsigned flags) {
     QueryPerformanceFrequency(&g_mctx.qpc_freq);
@@ -133,6 +171,7 @@ static inline void measure_init(unsigned flags) {
     InitializeCriticalSection(&g_mctx.sess_lock);
     InitializeCriticalSection(&g_mctx.link_lock);
     InitializeCriticalSection(&g_mctx.gp_lock);
+    InitializeCriticalSection(&g_mctx.hopbytes_lock);
 
     if (flags & MEASURE_P1) {
         g_mctx.hop_fp  = fopen("hop_timing.csv", "a");
@@ -158,21 +197,43 @@ static inline void measure_init(unsigned flags) {
                     "# SG goodput sampled every 1s\n"
                     "ts_ms,bps\n");
     }
+    if (flags & MEASURE_P5) {
+        /* Unlike P1-P4, this probe runs concurrently in EVERY mix node
+         * process of a live 12-node cluster (Figure 2/Table 2's P1/P4
+         * never had to share a cwd across processes the way a live
+         * bandwidth sweep does), a plain "hop_link_bytes.csv" would
+         * have every process's writes interleaved into one file with no
+         * way to tell which physical link a line came from. PID-suffixed
+         * filename keeps each process's own link's data in its own file;
+         * the sweep script that starts each node also records which PID
+         * mapped to which port. */
+        char fname[64];
+        snprintf(fname, sizeof(fname), "hop_link_bytes_%lu.csv",
+                 (unsigned long)GetCurrentProcessId());
+        g_mctx.hopbytes_fp = fopen(fname, "a");
+        if (g_mctx.hopbytes_fp)
+            fprintf(g_mctx.hopbytes_fp,
+                    "# per-hop total inbound link bandwidth, real+cover "
+                    "undifferentiated (a mix node cannot tell them "
+                    "apart), sampled every 1s\n"
+                    "ts_ms,bps\n");
+    }
 
-    /* Start sampler for P3 / P4 if either is active */
-    if ((flags & MEASURE_P3) || (flags & MEASURE_P4)) {
+    /* Start sampler for P3 / P4 / P5 if any is active */
+    if ((flags & MEASURE_P3) || (flags & MEASURE_P4) || (flags & MEASURE_P5)) {
         g_mctx.sampler_stop = 0;
         g_mctx.sampler_thread =
             CreateThread(NULL, 0, _measure_sampler, NULL, 0, NULL);
     }
 }
 
-/* ── measure_flush / measure_close ─────────────────────────────────────── */
+/* measure_flush / measure_close */
 static inline void measure_flush(void) {
-    if (g_mctx.hop_fp)  fflush(g_mctx.hop_fp);
-    if (g_mctx.sess_fp) fflush(g_mctx.sess_fp);
-    if (g_mctx.link_fp) fflush(g_mctx.link_fp);
-    if (g_mctx.gp_fp)   fflush(g_mctx.gp_fp);
+    if (g_mctx.hop_fp)      fflush(g_mctx.hop_fp);
+    if (g_mctx.sess_fp)     fflush(g_mctx.sess_fp);
+    if (g_mctx.link_fp)     fflush(g_mctx.link_fp);
+    if (g_mctx.gp_fp)       fflush(g_mctx.gp_fp);
+    if (g_mctx.hopbytes_fp) fflush(g_mctx.hopbytes_fp);
 }
 
 static inline void measure_close(void) {
@@ -180,17 +241,19 @@ static inline void measure_close(void) {
     if (g_mctx.sampler_thread)
         WaitForSingleObject(g_mctx.sampler_thread, 2000);
     measure_flush();
-    if (g_mctx.hop_fp)  { fclose(g_mctx.hop_fp);  g_mctx.hop_fp  = NULL; }
-    if (g_mctx.sess_fp) { fclose(g_mctx.sess_fp); g_mctx.sess_fp = NULL; }
-    if (g_mctx.link_fp) { fclose(g_mctx.link_fp); g_mctx.link_fp = NULL; }
-    if (g_mctx.gp_fp)   { fclose(g_mctx.gp_fp);   g_mctx.gp_fp   = NULL; }
+    if (g_mctx.hop_fp)      { fclose(g_mctx.hop_fp);      g_mctx.hop_fp      = NULL; }
+    if (g_mctx.sess_fp)     { fclose(g_mctx.sess_fp);     g_mctx.sess_fp     = NULL; }
+    if (g_mctx.link_fp)     { fclose(g_mctx.link_fp);     g_mctx.link_fp     = NULL; }
+    if (g_mctx.gp_fp)       { fclose(g_mctx.gp_fp);       g_mctx.gp_fp       = NULL; }
+    if (g_mctx.hopbytes_fp) { fclose(g_mctx.hopbytes_fp); g_mctx.hopbytes_fp = NULL; }
     DeleteCriticalSection(&g_mctx.hop_lock);
     DeleteCriticalSection(&g_mctx.sess_lock);
     DeleteCriticalSection(&g_mctx.link_lock);
     DeleteCriticalSection(&g_mctx.gp_lock);
+    DeleteCriticalSection(&g_mctx.hopbytes_lock);
 }
 
-/* ── P1: per-hop crypto timer macros ────────────────────────────────────── */
+/* P1: per-hop crypto timer macros */
 
 /* Place MEASURE_HOP_BEGIN immediately before packet_sphinx_peel()
  * and MEASURE_HOP_END immediately after.                                   */
@@ -210,7 +273,7 @@ static inline void measure_close(void) {
         }                                                                      \
     } while (0)
 
-/* ── P2: session setup timer ────────────────────────────────────────────── */
+/* P2: session setup timer */
 
 /* Call MEASURE_SESSION_BEGIN() just before the first ecdhe_with_node().
  * Call MEASURE_SESSION_END() right after g_state.ready = 1.               */
@@ -237,7 +300,7 @@ static inline void measure_close(void) {
         LeaveCriticalSection(&g_mctx.sess_lock);                                \
     } while (0)
 
-/* ── P3: link byte counter ──────────────────────────────────────────────── */
+/* P3: link byte counter */
 
 /* Call after every net_send_all() on the client outbound edge to MN1.
  * is_cover: 1 for dummy/cover packets, 0 for real packets.
@@ -251,7 +314,7 @@ static inline void measure_link_bytes(int is_cover, LONGLONG nbytes) {
     LeaveCriticalSection(&g_mctx.link_lock);
 }
 
-/* ── P4: SG goodput counter ─────────────────────────────────────────────── */
+/* P4: SG goodput counter */
 
 /* Call in service_gateway.c after a successful send_response().
  * nbytes: size of the plaintext response delivered.                        */
@@ -259,6 +322,23 @@ static inline void measure_sg_goodput(LONGLONG nbytes) {
     EnterCriticalSection(&g_mctx.gp_lock);
     g_mctx.gp_bytes += nbytes;
     LeaveCriticalSection(&g_mctx.gp_lock);
+}
+
+/* P5: per-hop total link byte counter */
+
+/* Call once per wire packet RECEIVED on this node's inbound link,
+ * forward or return direction, regardless of whether it turns out to be
+ * real or cover, deliberately not split by type, matching the actual
+ * observable: a mix node cannot tell real from cover
+ * (mix_node_instrumented.c's handle_data()/handle_return()), and neither
+ * can the SG's forward-inbound side before PKT_DUMMY is decrypted
+ * (service_gateway_instrumented.c) nor the client's return-inbound side
+ * before its own decrypt (client_instrumented.c's response_listener()).
+ * nbytes: typically WIRE_PACKET_SIZE = 1024. */
+static inline void measure_hop_bytes(LONGLONG nbytes) {
+    EnterCriticalSection(&g_mctx.hopbytes_lock);
+    g_mctx.hopbytes_total += nbytes;
+    LeaveCriticalSection(&g_mctx.hopbytes_lock);
 }
 
 #endif /* MEASURE_H */

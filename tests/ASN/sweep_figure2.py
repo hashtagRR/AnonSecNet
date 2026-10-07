@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sweep_figure2.py  --  Anon-Sec-Net v2  Figure 2: Per-hop Processing Latency
+sweep_figure2.py: Anon-Sec-Net v2  Figure 2: Per-hop Processing Latency
 
 HOW TO RUN
 ----------
@@ -48,16 +48,17 @@ import sys
 
 
 BENCH_EXE = "bench_figure2.exe"
-BUILD_CMD = (
-    "gcc -Wall -Wextra -O2 -I. "
-    "common/crypto.c common/net.c common/packet.c "
-    "bench_figure2.c "
-    "-lssl -lcrypto -lws2_32 -lbcrypt -lm "
-    "-o bench_figure2.exe"
-)
+BUILD_CMD = [
+    "gcc", "-Wall", "-Wextra", "-O2", "-I.", "-pthread",
+    "common/crypto.c", "common/net.c", "common/packet.c",
+    "bench_figure2.c",
+    "-lssl", "-lcrypto", "-lm", "-pthread",
+    "-o", "bench_figure2.exe",
+]
+BUILD_CMD_STR = " ".join(BUILD_CMD)  # for display only
 
 
-# ── CSV reader / writer ───────────────────────────────────────────────────────
+# -- CSV reader / writer -------------------------------------------------------
 
 def read_bench_output(text):
     """Parse CSV lines from bench_figure2.exe stdout."""
@@ -95,7 +96,7 @@ def write_csv(rows, out_path):
         fp.write("# Anon-Sec-Net v2 Figure 2: per-hop crypto latency\n")
         fp.write("# Source: bench_figure2.exe (in-process, all variants)\n")
         fp.write("# ASN: constant cost (fixed 1024-byte wire packet, "
-                 "max payload 499B)\n")
+                 "max payload 463B)\n")
         fp.write("# Tor: AES-256-GCM encrypt+decrypt, scales with payload\n")
         fp.write("# nonanon: AES-256-GCM encrypt only\n")
         w = csv.DictWriter(fp, fieldnames=fields)
@@ -106,7 +107,7 @@ def write_csv(rows, out_path):
                         for k in fields})
 
 
-# ── Summary printer ───────────────────────────────────────────────────────────
+# -- Summary printer -----------------------------------------------------------
 
 def print_summary(rows):
     by_proto = {}
@@ -141,7 +142,7 @@ def print_summary(rows):
                 print(f"  {ps:>10}  {ratio:>8.2f}x  {winner:>8}")
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
+# -- main ----------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -168,10 +169,10 @@ def main():
     # Optional build step
     if args.build:
         print(f"  Building {BENCH_EXE} ...")
-        ret = os.system(BUILD_CMD)
+        ret = subprocess.run(BUILD_CMD).returncode
         if ret != 0:
             print(f"ERROR: build failed (exit {ret})")
-            print(f"  Command was: {BUILD_CMD}")
+            print(f"  Command was: {BUILD_CMD_STR}")
             sys.exit(1)
         print(f"  Build OK")
         print()
@@ -181,7 +182,7 @@ def main():
         print(f"ERROR: {args.bench} not found.")
         print()
         print("  Build it first:")
-        print(f"    {BUILD_CMD}")
+        print(f"    {BUILD_CMD_STR}")
         print()
         print("  Or run with --build to build automatically.")
         sys.exit(1)
