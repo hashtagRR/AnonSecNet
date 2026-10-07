@@ -179,10 +179,9 @@ static int make_hop_session(hop_session_t *hs) {
         memcpy(D[i].out->key, ks, AES_KEY_LEN);
     }
 
-    /* Derive hint_seed (this benchmark only needs a fixed,
-     * valid hint value to build one synthetic packet with, achieved by
-     * calling packet_derive_hop_hint() with a constant counter below). */
-    packet_derive_hint_seed(&master, &hs->hint_seed);
+    /* hint = first HINT_BYTES of local pubkey (skip 0x04 prefix), the
+     * fixed per-hop hint that common/packet.h's hop_session_t carries. */
+    memcpy(hs->hint, local.pubkey_bytes + 1, HINT_BYTES);
 
     crypto_ecdh_free(&local);
     crypto_ecdh_free(&remote);
@@ -248,13 +247,6 @@ static void bench_fig2(void) {
             hop_info_t    hi     = {0};
             uint8_t       cover  = 0;
 
-            /* Derive one fixed hint value from hint_seed
-             * (packet_sphinx_peel()'s hint param is actually unused by
-             * its implementation, but derive a real one anyway to keep
-             * this synthetic packet coherent). */
-            uint8_t hint0[HINT_BYTES];
-            packet_derive_hop_hint(&path.hops[0].hint_seed, 0, hint0);
-
             /* Fill payload section with random data (content irrelevant) */
             RAND_bytes(pkt_in.data + HEADER_SIZE, PAYLOAD_SECTION_SIZE);
 
@@ -286,7 +278,7 @@ static void bench_fig2(void) {
                             block+ADDR_BYTES+BLIND_KEY_BYTES+FLAG_BYTES);
                 /* Hint */
                 memcpy(block+ADDR_BYTES+BLIND_KEY_BYTES+FLAG_BYTES+MAC_BYTES,
-                       hint0, HINT_BYTES);
+                       path.hops[0].hint, HINT_BYTES);
             }
 
             samples_t s = {0};
@@ -297,7 +289,7 @@ static void bench_fig2(void) {
                     &pkt_in,
                     &path.hops[0].header_enc_key,
                     &path.hops[0].header_mac_key,
-                    hint0,
+                    path.hops[0].hint,
                     &hi, &pkt_out, &cover);
                 double t1 = now_us();
                 if (rc != 0) {
