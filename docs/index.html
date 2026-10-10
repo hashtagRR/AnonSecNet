@@ -1,339 +1,625 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Anon-Sec-Net</title>
-<meta name="description" content="A C research prototype of anonymous communication built on separation of duties: routing, brokering and storage in separate hands.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-:root {
-  --bg: #fbfaf7;
-  --surface: #ffffff;
-  --ink: #16191f;
-  --muted: #5a6170;
-  --line: #e3e1db;
-  --accent: #2b4c7e;
-  --accent-ink: #ffffff;
-  --mix: #2b4c7e;   --mix-bg: #e6eef9;
-  --gw: #a86f12;    --gw-bg: #fdf1dc;
-  --cache: #2e7a4b; --cache-bg: #e5f3ea;
-  --end: #333a45;   --end-bg: #efeff0;
-  --warn-bg: #fff6e5; --warn-line: #e7c27a;
-  --code-bg: #12151b; --code-ink: #e4e7ec;
-  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f1216; --surface: #171b21; --ink: #e8eaee; --muted: #9aa2b1; --line: #2a303a;
-    --accent: #8fb2e8; --accent-ink: #0f1216;
-    --mix: #8fb2e8; --mix-bg: #1b2636;
-    --gw: #e6b35c; --gw-bg: #2d2416;
-    --cache: #7cc79a; --cache-bg: #17281e;
-    --end: #c9ced8; --end-bg: #22272f;
-    --warn-bg: #2a2214; --warn-line: #7a5d22;
-    --code-bg: #0a0c10; --code-ink: #e4e7ec;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0f1216; --surface: #171b21; --ink: #e8eaee; --muted: #9aa2b1; --line: #2a303a;
-  --accent: #8fb2e8; --accent-ink: #0f1216;
-  --mix: #8fb2e8; --mix-bg: #1b2636;
-  --gw: #e6b35c; --gw-bg: #2d2416;
-  --cache: #7cc79a; --cache-bg: #17281e;
-  --end: #c9ced8; --end-bg: #22272f;
-  --warn-bg: #2a2214; --warn-line: #7a5d22;
-  --code-bg: #0a0c10; --code-ink: #e4e7ec;
-}
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 17px/1.6 var(--sans);
-}
-a { color: var(--accent); }
-.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
-@media (min-width: 720px) { .wrap { padding: 0 32px; } }
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a1120" />
+  <meta name="description" content="Anon-Sec-Net is a C research prototype of anonymous communication built on separation of duties: routing, brokering and storage in separate hands." />
+  <title>Anon-Sec-Net | Separation of Duties for Anonymous Communication</title>
+  <script>document.documentElement.classList.add('js')</script>
 
-header.top { border-bottom: 1px solid var(--line); }
-header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
-.brand { font-weight: 700; letter-spacing: .01em; text-decoration: none; color: var(--ink); }
-.brand span { color: var(--muted); font-weight: 500; }
-nav a { color: var(--muted); text-decoration: none; margin-left: 20px; font-size: 15px; }
-nav a:hover { color: var(--ink); }
-@media (max-width: 640px) { nav a.opt { display: none; } }
+  <style>
+    :root{
+      --bg:#0a1120;
+      --paper:#111b2e;
+      --ink:#eef3fb;
+      --muted:#95a3ba;
+      --line:rgba(255,255,255,.09);
+      --mint:#6fe3c6;
+      --amber:#f2b55c;
+      --sky:#7cc4ff;
+      --grey:#9aa4b5;
+      --code:#070d18;
+      --shadow:0 25px 70px rgba(0,0,0,.32);
+      --radius:24px;
+      --max:1180px;
+    }
 
-.hero { padding: 72px 0 40px; }
-.eyebrow { font: 500 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-h1 { font-size: clamp(34px, 6vw, 56px); line-height: 1.08; margin: 16px 0 20px; letter-spacing: -.02em; max-width: 16ch; }
-.lede { font-size: 20px; color: var(--muted); max-width: 60ch; margin: 0 0 28px; }
-.cta { display: flex; flex-wrap: wrap; gap: 12px; }
-.btn { display: inline-block; padding: 11px 18px; border-radius: 8px; font-weight: 600; font-size: 15px; text-decoration: none; border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;color:var(--ink);
+      background:
+        radial-gradient(circle at 12% 0%,rgba(111,227,198,.11),transparent 28rem),
+        radial-gradient(circle at 88% 10%,rgba(242,181,92,.09),transparent 24rem),
+        linear-gradient(180deg,#0a1120,#0b1322 55%,#0a1120);
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      line-height:1.55;
+    }
+    a{color:inherit;text-decoration:none}
+    code,pre,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+    sup{font-size:.6em}
+    .wrap{width:min(calc(100% - 40px),var(--max));margin-inline:auto}
 
-.notice { margin: 32px 0 0; padding: 14px 18px; border: 1px solid var(--warn-line); background: var(--warn-bg); border-radius: 10px; font-size: 15px; max-width: 760px; }
+    /* top bar */
+    .topbar{position:sticky;top:0;z-index:50;backdrop-filter:blur(16px);background:rgba(8,14,26,.8);border-bottom:1px solid rgba(255,255,255,.06)}
+    nav{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:28px}
+    .brand{display:flex;align-items:center;gap:12px;font-weight:820;letter-spacing:-.03em}
+    .mark{width:35px;height:35px;border-radius:50%;border:1.5px solid rgba(255,255,255,.2);background:#0f1a2d;position:relative;overflow:hidden}
+    .mark:before,.mark:after{content:"";position:absolute;top:8px;width:7px;height:17px;border-radius:4px}
+    .mark:before{left:9px;background:var(--mint)}
+    .mark:after{right:9px;background:var(--amber)}
+    .navlinks{display:flex;align-items:center;gap:6px;font-size:14px;color:#9aabc5}
+    .navlinks a:not(.github){position:relative;padding:8px 11px;border-radius:10px;transition:color .2s,background .2s}
+    .navlinks a:not(.github)::after{content:"";position:absolute;left:11px;right:11px;bottom:4px;height:2px;border-radius:999px;background:linear-gradient(90deg,var(--mint),var(--amber));transform:scaleX(0);transition:transform .22s ease}
+    .navlinks a:not(.github):hover{color:var(--ink);background:rgba(111,227,198,.07)}
+    .navlinks a:not(.github).active{color:#f3fffb;background:rgba(111,227,198,.12)}
+    .navlinks a:not(.github).active::after{transform:scaleX(1)}
+    .github{margin-left:14px;display:inline-flex;align-items:center;background:linear-gradient(135deg,var(--mint),var(--amber));color:#08101c;padding:10px 16px;border-radius:999px;font-weight:760}
+    main section[id]{scroll-margin-top:92px}
 
-section { padding: 56px 0; border-top: 1px solid var(--line); }
-h2 { font-size: 28px; letter-spacing: -.01em; margin: 0 0 12px; }
-.sub { color: var(--muted); max-width: 66ch; margin: 0 0 32px; }
+    /* hero */
+    .hero{padding:94px 0 64px}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.09);border-radius:999px;background:rgba(255,255,255,.035);padding:7px 12px;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    .eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--mint)}
+    h1{max-width:1000px;margin:25px 0 23px;font-size:clamp(54px,8vw,112px);line-height:.9;letter-spacing:-.07em;font-weight:890}
+    h1 .outline{color:transparent;-webkit-text-stroke:1.5px var(--mint)}
+    .hero-bottom{display:grid;grid-template-columns:1.25fr .75fr;gap:60px;align-items:end}
+    .lede{font-size:clamp(20px,2.2vw,28px);line-height:1.3;letter-spacing:-.025em;max-width:720px;color:#dfe8f6;margin:0}
+    .hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:29px}
+    .btn{padding:14px 20px;border-radius:999px;font-weight:780;font-size:14px;display:inline-flex;align-items:center;gap:9px;border:1px solid rgba(255,255,255,.14);transition:.2s ease}
+    .btn.primary{background:linear-gradient(135deg,var(--mint),var(--amber));color:#08101c;border:0}
+    .btn.primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(111,227,198,.18)}
+    .btn.secondary:hover{background:rgba(255,255,255,.05)}
+    .hero-note{font-size:14px;color:#98a8c0;border-left:2px solid var(--amber);padding-left:18px;margin:0}
 
-.figure { background: #ffffff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
-.figure img { display: block; width: 100%; height: auto; }
-.legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 14px; color: var(--muted); }
-.legend span::before { content: ""; display: inline-block; width: 22px; vertical-align: middle; margin-right: 8px; border-top: 2px solid var(--muted); }
-.legend span.dash::before { border-top-style: dashed; }
+    .hero-art{margin:70px 0 0;border-radius:30px;overflow:hidden;position:relative;box-shadow:var(--shadow);
+      background:radial-gradient(circle at 50% 45%,rgba(111,227,198,.07),transparent 26rem),#0c1628;border:1px solid rgba(255,255,255,.08);min-height:540px}
+    .hero-art:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:42px 42px}
+    .art-top{position:absolute;z-index:3;left:25px;right:25px;top:18px;display:flex;justify-content:space-between;color:#8ea1bd;font:700 11px monospace;letter-spacing:.07em;text-transform:uppercase}
+    .net-scroll{position:absolute;left:0;right:0;top:44px;bottom:118px}
+    .net-svg{display:block;width:100%;height:100%}
+    .swipe{display:none}
+    .route{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;filter:url(#glow)}
+    .route-a{stroke:var(--mint)}
+    .route-b{stroke:var(--amber);stroke-dasharray:9 9;animation:dash 6s linear infinite}
+    .route-c{fill:none;stroke:rgba(255,255,255,.22);stroke-width:2.2;stroke-linecap:round}
+    .route-plan{fill:none;stroke:rgba(255,255,255,.2);stroke-width:1.8;stroke-dasharray:3 7}
+    @keyframes dash{to{stroke-dashoffset:-108}}
+    .mix circle{fill:#0f1c31;stroke:rgba(124,196,255,.55);stroke-width:2}
+    .mix text,.box text{fill:#eaf3ff;font-family:monospace;text-anchor:middle;font-weight:800}
+    .mix text{font-size:11px}
+    .box text{font-size:12px;letter-spacing:.04em}
+    .box .sub{fill:#9cb0cf;font-size:10px;font-weight:700;letter-spacing:0}
+    .end rect{fill:#15243b;stroke:#cfd9ea;stroke-width:1.8}
+    .sg rect{fill:#2a2213;stroke:var(--amber);stroke-width:2}
+    .cs rect{fill:#10291f;stroke:var(--mint);stroke-width:2}
+    .ng rect{fill:#121a29;stroke:rgba(255,255,255,.35);stroke-width:1.6;stroke-dasharray:6 5}
+    .ng text{fill:#aeb8c9}
+    .pk-a{fill:#a5f3e0;filter:url(#glow)}
+    .pk-b{fill:#ffd08f;filter:url(#glow)}
+    .art-caption{position:absolute;left:26px;right:26px;bottom:20px;display:flex;justify-content:space-between;gap:18px;align-items:flex-end;z-index:3}
+    .art-caption strong{display:block;font-size:18px;line-height:1.25;max-width:640px}
+    .art-caption .legend{display:flex;gap:16px;flex-wrap:wrap;color:#aabbd5;font-size:13px}
+    .art-caption .legend span{display:inline-flex;align-items:center;gap:7px}
+    .art-caption .legend i{display:inline-block;width:22px;height:0;border-top:3px solid var(--mint)}
+    .art-caption .legend i.b{border-top:3px dashed var(--amber)}
+    .art-caption .legend i.p{border-top:2px dotted rgba(255,255,255,.45)}
 
-.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-.role { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 12px; padding: 20px; }
-.role h3 { margin: 0 0 6px; font-size: 18px; }
-.role .tag { display: inline-block; font: 500 12px/1 var(--mono); padding: 5px 8px; border-radius: 6px; background: var(--cbg); color: var(--c); margin-bottom: 12px; }
-.role dl { margin: 0; font-size: 15px; }
-.role dt { font-weight: 600; margin-top: 10px; }
-.role dd { margin: 2px 0 0; color: var(--muted); }
-.r-mix { --c: var(--mix); --cbg: var(--mix-bg); }
-.r-gw { --c: var(--gw); --cbg: var(--gw-bg); }
-.r-cache { --c: var(--cache); --cbg: var(--cache-bg); }
-.r-end { --c: var(--end); --cbg: var(--end-bg); }
-.r-net { --c: var(--muted); --cbg: var(--bg); border-style: dashed; border-top-style: dashed; }
+    /* sections */
+    section{padding:88px 0}
+    .section-top{display:grid;grid-template-columns:.75fr 1.25fr;gap:48px;margin-bottom:42px}
+    .kicker{font-size:12px;font-weight:850;letter-spacing:.11em;text-transform:uppercase;color:var(--mint)}
+    h2{font-size:clamp(36px,5vw,66px);line-height:.98;letter-spacing:-.055em;margin:0;max-width:840px}
+    .subcopy{font-size:18px;color:var(--muted);max-width:740px;margin:20px 0 0}
 
-.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-.finding { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
-.finding .k { font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.finding .v { font-size: 30px; font-weight: 700; margin: 10px 0 6px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
-.finding p { margin: 0; font-size: 15px; color: var(--muted); }
-.finding.neg .v { color: var(--muted); }
+    .problem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    .problem{padding:28px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02))}
+    .num{font:700 12px monospace;color:var(--amber)}
+    .problem h3,.card h3{font-size:22px;letter-spacing:-.025em;margin:16px 0 8px}
+    .problem p,.card p{color:var(--muted);margin:0}
 
-.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
-table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 560px; }
-th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { font-weight: 600; background: var(--bg); }
-tr:last-child td { border-bottom: 0; }
-td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-code { font: 14px var(--mono); }
-td code, p code, li code { background: var(--bg); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; }
-.note { font-size: 14px; color: var(--muted); margin-top: 12px; }
+    .statement{background:linear-gradient(180deg,#0d1728,#101a2c);border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);padding:86px 0}
+    .statement blockquote{margin:0;font-size:clamp(40px,5.8vw,77px);line-height:1.03;letter-spacing:-.05em;max-width:1050px;font-weight:700}
+    .statement .accent{color:var(--mint)}
+    .statement small{display:block;margin-top:30px;color:#8fa0ba;font-size:14px}
 
-.steps { display: grid; gap: 18px; counter-reset: s; }
-.step { display: grid; grid-template-columns: 36px 1fr; gap: 14px; }
-.step::before { counter-increment: s; content: counter(s); width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; font-size: 15px; }
-.step h3 { margin: 4px 0 8px; font-size: 17px; }
-pre { margin: 0; background: var(--code-bg); color: var(--code-ink); padding: 14px 16px; border-radius: 10px; overflow-x: auto; font: 14px/1.55 var(--mono); }
-pre .c { color: #8b93a3; }
-pre .o { color: #9fd3a8; }
+    /* roles */
+    .roles{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+    .card{position:relative;overflow:hidden;padding:30px;border-radius:var(--radius);border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02))}
+    .card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c)}
+    .card .tag{display:inline-block;font:700 11px monospace;letter-spacing:.06em;text-transform:uppercase;padding:6px 9px;border-radius:8px;color:var(--c);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)}
+    .card dl{margin:20px 0 0;display:grid;grid-template-columns:110px 1fr;gap:10px 16px;font-size:14px}
+    .card dt{color:#cbd6e7;font-weight:700}
+    .card dd{margin:0;color:var(--muted)}
+    .c-mix{--c:var(--sky)}.c-sg{--c:var(--amber)}.c-cs{--c:var(--mint)}.c-end{--c:#cfd9ea}
+    .c-ng{--c:var(--grey);border-style:dashed}
+    .card.wide{grid-column:1 / -1}
 
-ul.limits { padding-left: 20px; max-width: 72ch; }
-ul.limits li { margin-bottom: 10px; }
+    /* flow */
+    .workflow{padding:38px;border-radius:28px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));box-shadow:var(--shadow)}
+    .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+    .step{min-height:190px;padding:20px;border:1px solid rgba(255,255,255,.07);border-radius:18px;background:rgba(255,255,255,.025);display:flex;flex-direction:column;justify-content:flex-start;gap:10px}
+    .step code{margin-bottom:6px}
+    .step b{font-size:16px}.step span{font-size:13px;color:var(--muted)}
+    .step code{font-size:11px;color:var(--mint)}
 
-footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
-footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; }
-</style>
+    .split{display:grid;grid-template-columns:1fr 1fr;gap:30px;align-items:start;margin-top:32px}
+    .codepanel{background:var(--code);border:1px solid rgba(255,255,255,.07);border-radius:26px;color:#e9eee7;overflow:hidden;box-shadow:var(--shadow)}
+    .codehead{height:50px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:7px;padding:0 19px;color:#99a3b3;font-size:12px}
+    .dot{width:9px;height:9px;border-radius:50%;background:#4d554e}.dot:nth-child(1){background:#d36b48}.dot:nth-child(2){background:#d5ab45}.dot:nth-child(3){background:#4d9b68}
+    pre{margin:0;padding:27px;overflow:auto;font-size:13px;line-height:1.75}
+    .cm{color:#7f8aa0}.pr{color:var(--mint)}.ok{color:#9be3b4}.am{color:var(--amber)}
+    .feature-list{display:grid}
+    .feature-row{display:grid;grid-template-columns:170px 1fr;gap:22px;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+    .feature-row strong{font-size:14px}.feature-row span{font-size:14px;color:var(--muted)}
+    .feature-row code{color:var(--mint)}
+
+    /* findings */
+    .research{background:linear-gradient(180deg,#0e1729,#111a2d);border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06)}
+    .questions{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .question{padding:26px;border-radius:18px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07)}
+    .question small{font:700 11px monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--mint)}
+    .question.neg small{color:var(--amber)}
+    .question .big{display:block;font-size:30px;font-weight:820;letter-spacing:-.03em;margin:12px 0 4px}
+    .question p{font-size:16px;color:#b7c4d8;margin:6px 0 0}
+    .question a{color:var(--mint)}
+
+    /* cost */
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .stat{padding:24px;border-radius:20px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
+    .stat small{font:700 11px monospace;text-transform:uppercase;letter-spacing:.06em;color:#9aabc5}
+    .stat .v{display:block;font-size:clamp(30px,3.4vw,42px);font-weight:850;letter-spacing:-.04em;margin:12px 0 2px;font-variant-numeric:tabular-nums}
+    .stat .vs{font-size:14px;color:var(--muted)}
+    .stat .vs b{color:#dfe8f6;font-weight:700}
+    .footnote{font-size:13px;color:#8496b0;margin-top:16px}
+    .footnote a{color:var(--mint)}
+
+    /* scope */
+    .limits{display:grid;grid-template-columns:.85fr 1.15fr;gap:58px}
+    .limit{padding:18px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+    .limit strong{display:block;margin-bottom:4px}
+    .limit span{color:var(--muted);font-size:14px}
+
+    .license-card{display:grid;grid-template-columns:.72fr 1.28fr;gap:48px;padding:38px;border:1px solid rgba(255,255,255,.09);border-radius:28px;
+      background:radial-gradient(circle at 8% 15%,rgba(111,227,198,.09),transparent 18rem),linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02))}
+    .license-card h2{font-size:clamp(34px,4.2vw,56px)}
+    .license-copy p{color:var(--muted);font-size:16px;margin:0 0 14px}
+    .license-copy strong{color:#eef5ff}
+    .license-link{display:inline-flex;margin-top:8px;color:var(--mint);font-weight:800;font-size:14px}
+
+    .cta{margin:70px auto;border-radius:32px;padding:58px;display:flex;justify-content:space-between;gap:35px;align-items:end;border:1px solid rgba(255,255,255,.08);
+      background:radial-gradient(circle at 10% 10%,rgba(111,227,198,.13),transparent 16rem),radial-gradient(circle at 90% 90%,rgba(242,181,92,.12),transparent 18rem),linear-gradient(180deg,#121e33,#0e1729)}
+    .cta h2{max-width:720px}.cta p{color:#b9c6d9;max-width:610px;font-size:16px;margin:0}
+    .cta p + p{margin-top:14px}
+    .cta p a{color:var(--mint)}
+    .cta .btn{background:#fff;color:#0a1120;border:0;white-space:nowrap}
+
+    footer{padding:0 0 45px}
+    .footerline{border-top:1px solid rgba(255,255,255,.08);padding-top:25px;display:flex;justify-content:space-between;gap:25px;color:var(--muted);font-size:13px}
+
+    .js .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s ease}
+    .js .reveal.in{opacity:1;transform:none}
+    @media (prefers-reduced-motion:reduce){
+      html{scroll-behavior:auto}
+      .js .reveal{opacity:1;transform:none;transition:none}
+      .route-b{animation:none}
+      .packets{display:none}
+    }
+
+    @media(max-width:900px){
+      .navlinks a:not(.github){display:none}
+      .hero{padding-top:64px}
+      .hero-bottom,.section-top,.split,.limits,.license-card{grid-template-columns:1fr}
+      .problem-grid,.roles,.questions{grid-template-columns:1fr}
+      .stats{grid-template-columns:1fr 1fr}
+      .flow{grid-template-columns:1fr 1fr}
+      .cta{flex-direction:column;align-items:flex-start}
+      .art-caption{flex-direction:column;align-items:flex-start}
+    }
+    @media(max-width:600px){
+      .wrap{width:min(calc(100% - 32px),var(--max))}
+      h1{font-size:52px}
+      .hero-art{min-height:0;padding:50px 0 22px}
+      .net-scroll{position:relative;top:auto;bottom:auto;overflow-x:auto;-webkit-overflow-scrolling:touch}
+      .net-svg{width:820px;height:auto}
+      .art-caption{position:relative;left:auto;right:auto;bottom:auto;padding:12px 20px 0}
+      .swipe{display:block;color:#8ea1bd;font:700 11px monospace;letter-spacing:.06em;text-transform:uppercase}
+      .art-caption strong{font-size:15px}
+      .art-top span:nth-child(2){display:none}
+      .flow,.stats{grid-template-columns:1fr}
+      .workflow{padding:20px}
+      .card dl{grid-template-columns:1fr;gap:2px}
+      .card dd{margin-bottom:10px}
+      .feature-row{grid-template-columns:1fr;gap:5px}
+      .cta{padding:35px 25px}
+      section{padding:66px 0}
+      .footerline{flex-direction:column}
+    }
+  </style>
 </head>
-<body>
 
-<header class="top">
+<body>
+<header class="topbar">
   <div class="wrap">
-    <a class="brand" href="#">Anon-Sec-Net <span>ASN</span></a>
     <nav>
-      <a class="opt" href="#design">Design</a>
-      <a class="opt" href="#findings">Findings</a>
-      <a href="#start">Quickstart</a>
-      <a href="https://github.com/hashtagRR/AnonSecNet">GitHub</a>
+      <a class="brand" href="#top" aria-label="Anon-Sec-Net home">
+        <span class="mark" aria-hidden="true"></span>
+        <span>Anon-Sec-Net</span>
+      </a>
+      <div class="navlinks">
+        <a href="#idea" data-nav="idea">Idea</a>
+        <a href="#roles" data-nav="roles">Roles</a>
+        <a href="#flow" data-nav="flow">How it runs</a>
+        <a href="#findings" data-nav="findings">Findings</a>
+        <a href="#cost" data-nav="cost">Cost</a>
+        <a href="#scope" data-nav="scope">Scope</a>
+        <a class="github" href="https://github.com/hashtagRR/AnonSecNet" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
     </nav>
   </div>
 </header>
 
-<main>
-<div class="wrap hero">
-  <div class="eyebrow">Research prototype in C, GPL-3.0</div>
-  <h1>Anonymous communication with the duties split apart</h1>
-  <p class="lede">ASN gives routing, brokering and storage to separate roles, so no single piece of infrastructure holds enough to link a receiver to the service it talks to. The repository has the prototype, a matched onion-routing baseline and the attack simulations used to test the idea.</p>
-  <div class="cta">
-    <a class="btn primary" href="#start">Run it locally</a>
-    <a class="btn" href="https://github.com/hashtagRR/AnonSecNet">Source on GitHub</a>
-  </div>
-  <p class="notice"><strong>Research code.</strong> ASN has no directory authorities, pins node keys trust-on-first-use and has only been run on a single host. It is for studying a design, not for protecting real traffic.</p>
-</div>
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <div class="eyebrow"><i></i> Research prototype for anonymous communication</div>
+      <h1>Anonymity through <span class="outline">separated</span> duties.</h1>
 
-<section id="design">
-  <div class="wrap">
-    <h2>Four roles, nobody holds the whole picture</h2>
-    <p class="sub">In onion routing the relays that carry a circuit are also the parties whose collusion breaks it. ASN hands each duty to a different operator. Every party reaches its Service Gateway over two independently routed three-hop paths: one for requests, one for responses on a pre-built return header.</p>
+      <div class="hero-bottom">
+        <div>
+          <p class="lede">
+            Anon-Sec-Net is a C prototype that gives <strong>routing, brokering and storage to different roles</strong>,
+            so no single operator holds enough to link a receiver to the service it talks to.
+          </p>
+          <div class="hero-actions">
+            <a class="btn primary" href="https://github.com/hashtagRR/AnonSecNet" target="_blank" rel="noreferrer">View on GitHub</a>
+            <a class="btn secondary" href="#flow">See how it runs</a>
+          </div>
+        </div>
+        <p class="hero-note">
+          Ships with a matched onion-routing baseline and the attack simulations used to test the design.
+          Built to study an idea, not to protect real traffic.
+        </p>
+      </div>
 
-    <div class="figure">
-      <img src="architecture.svg" alt="A Receiver and a Sender each reach their own Service Gateway over two three-hop mix paths, path A for requests and path B for responses. The two Service Gateways meet at a Cache Server. A planned Network Gateway links the Service Gateways to the internet.">
-    </div>
-    <div class="legend"><span>Path A, requests</span><span class="dash">Path B, responses</span></div>
-    <p class="note">In the prototype both Service Gateway roles run in one process on one host; the protocol keeps them separate so each could be run by a different operator. The Network Gateway, drawn dashed, is part of the design but has not been built.</p>
+      <div class="hero-art" aria-label="Animated diagram of the Anon-Sec-Net roles">
+        <div class="art-top"><span>receiver side</span><span>service gateways meet at a cache server</span><span>sender side</span></div>
+        <div class="net-scroll">
+        <svg class="net-svg" viewBox="0 0 1180 380" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <defs>
+            <filter id="glow"><feGaussianBlur stdDeviation="3.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <path id="rA" d="M70,190 L170,85 L250,85 L330,85 L445,190 L590,190"/>
+            <path id="rB" d="M590,190 L445,190 L330,295 L250,295 L170,295 L70,190"/>
+            <path id="sA" d="M1110,190 L1010,85 L930,85 L850,85 L735,190 L590,190"/>
+            <path id="sB" d="M590,190 L735,190 L850,295 L930,295 L1010,295 L1110,190"/>
+          </defs>
 
-    <div style="height:28px"></div>
-    <div class="roles">
-      <div class="role r-mix">
-        <span class="tag">mix_node</span>
-        <h3>Mix node</h3>
-        <dl><dt>Does</dt><dd>Relays 1024-byte Sphinx packets one hop at a time, blinding the payload with AES-CTR.</dd>
-        <dt>Sees</dt><dd>The previous and next hop.</dd>
-        <dt>Never sees</dt><dd>Endpoints, payload, or the other path.</dd></dl>
-      </div>
-      <div class="role r-gw">
-        <span class="tag">service_gateway</span>
-        <h3>Service Gateway</h3>
-        <dl><dt>Does</dt><dd>Terminates a party's two paths, binds them into one session and brokers its requests.</dd>
-        <dt>Sees</dt><dd>The request type and content key.</dd>
-        <dt>Never sees</dt><dd>The network address of the party behind the paths.</dd></dl>
-      </div>
-      <div class="role r-cache">
-        <span class="tag">cache_server</span>
-        <h3>Cache Server</h3>
-        <dl><dt>Does</dt><dd>Stores signed ciphertext and relays the content-key handshake. Only Service Gateways can reach it.</dd>
-        <dt>Sees</dt><dd>Opaque blobs under lookup keys.</dd>
-        <dt>Never sees</dt><dd>Plaintext, or any party's address.</dd></dl>
-      </div>
-      <div class="role r-end">
-        <span class="tag">client / sender</span>
-        <h3>Receiver and Sender</h3>
-        <dl><dt>Does</dt><dd>Agree a fresh content key per request; the Sender signs what it publishes.</dd>
-        <dt>Sees</dt><dd>Their own traffic.</dd>
-        <dt>Never sees</dt><dd>Each other's location.</dd></dl>
-      </div>
-      <div class="role r-net">
-        <span class="tag">planned</span>
-        <h3>Network Gateway</h3>
-        <dl><dt>Does</dt><dd>Connects the network to the public internet; outside servers are reached through the Service Gateways.</dd>
-        <dt>Status</dt><dd>Part of the design, not implemented in this prototype.</dd></dl>
-      </div>
-    </div>
-  </div>
-</section>
+          <path class="route route-a" d="M70,190 L170,85 L250,85 L330,85 L445,190"/>
+          <path class="route route-b" d="M445,190 L330,295 L250,295 L170,295 L70,190"/>
+          <path class="route route-a" d="M1110,190 L1010,85 L930,85 L850,85 L735,190"/>
+          <path class="route route-b" d="M735,190 L850,295 L930,295 L1010,295 L1110,190"/>
+          <path class="route-c" d="M445,190 L735,190"/>
+          <path class="route-plan" d="M445,190 L590,312 L735,190"/>
+          <path class="route-plan" d="M590,336 L590,362"/>
 
-<section id="findings">
-  <div class="wrap">
-    <h2>What the evaluation found</h2>
-    <p class="sub">Every number below comes from a seeded script or a live measurement in the repository. Where the design does not help, the results say so.</p>
-    <div class="findings">
-      <div class="finding">
-        <div class="k">Compromise</div>
-        <div class="v">f<sup>4</sup> vs f<sup>3</sup></div>
-        <p>Linking a receiver to a service takes four compromised positions against three for a Tor onion service. All of that margin comes from role separation, and at f = 0.1 it is gone once operator correlation passes about 0.01.</p>
-      </div>
-      <div class="finding neg">
-        <div class="k">Dual paths alone</div>
-        <div class="v">no gain</div>
-        <p>One path's entry and exit already give routing-level linkage (f<sup>2</sup>). Against the plain build a passive correlator reaches TPR 0.998 to 1.000 at FPR 1e-3, the same as against the single-path baseline.</p>
-      </div>
-      <div class="finding">
-        <div class="k">Per-hop mixing delay</div>
-        <div class="v">TPR 0.006</div>
-        <p>The hardened build (shared dispatch clock plus per-hop delay) brings a sequence correlator down from ceiling, at a measured throughput cost.</p>
-      </div>
-      <div class="finding">
-        <div class="k">Hop decoys + batch mixing</div>
-        <div class="v">100% to 28.5%</div>
-        <p>Terminating decoys at each hop and batch-mixing cuts detection by a GRU correlator at FPR 1e-3.</p>
-      </div>
-      <div class="finding neg">
-        <div class="k">Adaptive cover</div>
-        <div class="v">AUC 1.0</div>
-        <p>Load-adaptive cover leaks activity level once real load passes about 1.5 times the cover ceiling. Constant-rate cover stays at chance.</p>
+          <g class="packets">
+            <circle class="pk-a" r="6"><animateMotion dur="5s" repeatCount="indefinite"><mpath href="#rA"/></animateMotion></circle>
+            <circle class="pk-b" r="6"><animateMotion dur="5s" begin="2.5s" repeatCount="indefinite"><mpath href="#rB"/></animateMotion></circle>
+            <circle class="pk-a" r="6" opacity=".8"><animateMotion dur="5.6s" begin="-1.2s" repeatCount="indefinite"><mpath href="#sA"/></animateMotion></circle>
+            <circle class="pk-b" r="6" opacity=".8"><animateMotion dur="5.6s" begin="1.6s" repeatCount="indefinite"><mpath href="#sB"/></animateMotion></circle>
+          </g>
+
+          <g class="mix">
+            <circle cx="170" cy="85" r="21"/><text x="170" y="89">MN1</text>
+            <circle cx="250" cy="85" r="21"/><text x="250" y="89">MN2</text>
+            <circle cx="330" cy="85" r="21"/><text x="330" y="89">MN3</text>
+            <circle cx="170" cy="295" r="21"/><text x="170" y="299">MNa</text>
+            <circle cx="250" cy="295" r="21"/><text x="250" y="299">MNb</text>
+            <circle cx="330" cy="295" r="21"/><text x="330" y="299">MNc</text>
+            <circle cx="850" cy="85" r="21"/><text x="850" y="89">MNiii</text>
+            <circle cx="930" cy="85" r="21"/><text x="930" y="89">MNii</text>
+            <circle cx="1010" cy="85" r="21"/><text x="1010" y="89">MNi</text>
+            <circle cx="850" cy="295" r="21"/><text x="850" y="299">MNx</text>
+            <circle cx="930" cy="295" r="21"/><text x="930" y="299">MNy</text>
+            <circle cx="1010" cy="295" r="21"/><text x="1010" y="299">MNz</text>
+          </g>
+
+          <g class="box end">
+            <rect x="20" y="160" width="100" height="60" rx="14"/><text x="70" y="187">RECEIVER</text><text class="sub" x="70" y="204">client</text>
+            <rect x="1060" y="160" width="100" height="60" rx="14"/><text x="1110" y="187">SENDER</text><text class="sub" x="1110" y="204">hidden service</text>
+          </g>
+          <g class="box sg">
+            <rect x="385" y="158" width="120" height="64" rx="14"/><text x="445" y="185">SERVICE</text><text x="445" y="202">GATEWAY</text>
+            <rect x="675" y="158" width="120" height="64" rx="14"/><text x="735" y="185">SERVICE</text><text x="735" y="202">GATEWAY</text>
+          </g>
+          <g class="box cs">
+            <rect x="535" y="158" width="110" height="64" rx="14"/><text x="590" y="185">CACHE</text><text x="590" y="202">SERVER</text>
+          </g>
+          <g class="box ng">
+            <rect x="510" y="296" width="160" height="40" rx="12"/><text x="590" y="314">NETWORK GATEWAY</text><text class="sub" x="590" y="328">planned</text>
+            <text class="sub" x="590" y="376">internet</text>
+          </g>
+        </svg>
+        </div>
+        <div class="art-caption">
+          <span class="swipe">Swipe the diagram sideways to see both sides.</span>
+          <strong>Each party reaches its Service Gateway over two separate three-hop paths: one carries requests out, the other brings responses back.</strong>
+          <div class="legend"><span><i></i>Path A, requests</span><span><i class="b"></i>Path B, responses</span><span><i class="p"></i>Planned</span></div>
+        </div>
       </div>
     </div>
-    <p class="note">Commands and full results: <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/ASN/eval2/README.md">ASN/eval2/README.md</a>.</p>
-  </div>
-</section>
+  </section>
 
-<section id="performance">
-  <div class="wrap">
-    <h2>Cost against an onion-routing baseline</h2>
-    <p class="sub">The repository includes a single-path, three-hop onion-routing implementation on the same crypto library and testbed, so the comparison isolates the protocol. Measured on the live binaries over loopback; absolute numbers depend on hardware.</p>
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th>Metric</th><th>ASN</th><th>Tor-equivalent</th></tr></thead>
-        <tbody>
-          <tr><td>Path construction, mean of 1,000</td><td class="num">6.32 ms, 8 handshakes</td><td class="num">0.83 ms, 3 handshakes</td></tr>
-          <tr><td>Per-hop packet processing</td><td>about 5.0 &micro;s, constant-cost AES-CTR blinding</td><td>AES-GCM decrypt and re-encrypt</td></tr>
-          <tr><td>Aggregate throughput, 1 to 200 sessions, 16 vCPU</td><td class="num">94.2 to 8,878.7 kbps</td><td class="num">82.2 to 11,713.4 kbps</td></tr>
-          <tr><td>Live GET with content handshake, n = 12</td><td>1.46 s mean; 3.15 s with 50 ms per-hop mixing</td><td>n/a</td></tr>
-          <tr><td>Sustained retrieval, 50 to 200 concurrent sessions</td><td class="num">7.66 to 7.78 GET/s, 100% completion</td><td>n/a</td></tr>
-        </tbody>
-      </table>
+  <section id="idea">
+    <div class="wrap">
+      <div class="section-top reveal">
+        <div class="kicker">01 / The idea</div>
+        <div>
+          <h2>In onion routing, the relays hold every duty at once.</h2>
+          <p class="subcopy">
+            The nodes that carry a circuit also locate the service and deliver its content, so the same small set of
+            operators is both the infrastructure and the threat. Anon-Sec-Net asks what changes when those duties
+            are pulled apart and given to parties that never need to trust each other.
+          </p>
+        </div>
+      </div>
+
+      <div class="problem-grid reveal">
+        <article class="problem">
+          <span class="num">01</span>
+          <h3>Route</h3>
+          <p>Mix nodes relay fixed-size Sphinx packets. Each one sees only its neighbours and never the endpoints or the payload.</p>
+        </article>
+        <article class="problem">
+          <span class="num">02</span>
+          <h3>Broker</h3>
+          <p>Service Gateways terminate a party's two paths and handle its requests, without learning where that party is on the network.</p>
+        </article>
+        <article class="problem">
+          <span class="num">03</span>
+          <h3>Store</h3>
+          <p>The Cache Server holds signed ciphertext under lookup keys. It can neither read the content nor see who asked for it.</p>
+        </article>
+      </div>
     </div>
-    <p class="note">Data files and machine specs: <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/results/README.md">results/README.md</a>.</p>
-  </div>
-</section>
+  </section>
 
-<section id="variants">
-  <div class="wrap">
-    <h2>Build variants</h2>
-    <p class="sub">Each defence is a compile-time flag, so plain and hardened nodes can be compared on the same code.</p>
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th>Target</th><th>Adds</th></tr></thead>
-        <tbody>
-          <tr><td><code>make nodes</code></td><td>Sphinx forwarding with bidirectional cover traffic at a per-client rate tier</td></tr>
-          <tr><td><code>make hardened</code></td><td>Shared fixed-rate dispatch clock plus exponential per-hop mixing delay</td></tr>
-          <tr><td><code>make poolmix</code></td><td>Batch mixing at each hop instead of per-packet delay</td></tr>
-          <tr><td><code>make hopdecoy</code></td><td>Decoys terminated at each hop; combines with the two above</td></tr>
-          <tr><td><code>make instrumented</code></td><td>Timing and bandwidth probes for benchmarks</td></tr>
-        </tbody>
-      </table>
+  <section class="statement">
+    <div class="wrap reveal">
+      <blockquote>
+        Route. Broker. Store.<br/>
+        Keep them in <span class="accent">separate hands</span>.
+      </blockquote>
+      <small>Linking a receiver to a service means compromising several independent roles at once.</small>
     </div>
-  </div>
-</section>
+  </section>
 
-<section id="start">
-  <div class="wrap">
-    <h2>Quickstart</h2>
-    <p class="sub">Needs GCC, Make, OpenSSL development headers and Python 3.8 or newer. Tested on Debian and Ubuntu.</p>
-    <div class="steps">
-      <div class="step"><div>
-        <h3>Build and start the network</h3>
-<pre>git clone https://github.com/hashtagRR/AnonSecNet.git
-cd AnonSecNet/ASN &amp;&amp; make nodes
-cd ../tests/ASN &amp;&amp; ./start_nodes_pool.sh   <span class="c"># mix nodes, Service Gateway, Cache Server</span></pre>
-      </div></div>
-      <div class="step"><div>
-        <h3>Publish as the Sender, and leave it running</h3>
-<pre>cd AnonSecNet/ASN &amp;&amp; ./sender.exe
-&gt; PUT mykey hello</pre>
-      </div></div>
-      <div class="step"><div>
-        <h3>Fetch as the Receiver from a second terminal</h3>
-<pre>cd AnonSecNet/ASN &amp;&amp; ./client.exe
-&gt; GET mykey
-<span class="o">Response (5 bytes, signature verified, confidentiality-protected): hello</span></pre>
-      </div></div>
-      <div class="step"><div>
-        <h3>Stop the network</h3>
-<pre>tests/ASN/stop_nodes_pool.sh</pre>
-      </div></div>
+  <section id="roles">
+    <div class="wrap">
+      <div class="section-top reveal">
+        <div class="kicker">02 / Roles</div>
+        <div>
+          <h2>Everyone sees a little. Nobody sees the whole.</h2>
+          <p class="subcopy">Each role is a separate process with its own keys. In a deployment, each could be run by a different operator.</p>
+        </div>
+      </div>
+
+      <div class="roles">
+        <article class="card c-mix reveal">
+          <span class="tag">mix_node</span>
+          <h3>Mix node</h3>
+          <p>Relays 1024-byte Sphinx packets one hop at a time, blinding the payload with AES-CTR.</p>
+          <dl><dt>Sees</dt><dd>The previous and next hop, its own per-session hop key.</dd>
+              <dt>Never sees</dt><dd>Endpoints, payload, or the other path.</dd></dl>
+        </article>
+        <article class="card c-sg reveal">
+          <span class="tag">service_gateway</span>
+          <h3>Service Gateway</h3>
+          <p>Terminates a party's two paths, binds them into one session and brokers its requests.</p>
+          <dl><dt>Sees</dt><dd>The request type and the content key.</dd>
+              <dt>Never sees</dt><dd>The network address of the party behind the paths.</dd></dl>
+        </article>
+        <article class="card c-cs reveal">
+          <span class="tag">cache_server</span>
+          <h3>Cache Server</h3>
+          <p>Stores signed ciphertext and relays the content-key handshake. Only Service Gateways can reach it.</p>
+          <dl><dt>Sees</dt><dd>Opaque blobs under lookup keys.</dd>
+              <dt>Never sees</dt><dd>Plaintext, or any party's address.</dd></dl>
+        </article>
+        <article class="card c-end reveal">
+          <span class="tag">client / sender</span>
+          <h3>Receiver and Sender</h3>
+          <p>Agree a fresh content key for every request. The Sender signs everything it publishes.</p>
+          <dl><dt>Sees</dt><dd>Their own traffic.</dd>
+              <dt>Never sees</dt><dd>Each other's location.</dd></dl>
+        </article>
+        <article class="card c-ng wide reveal">
+          <span class="tag">planned</span>
+          <h3>Network Gateway</h3>
+          <p>Connects the network to the public internet, with outside servers reached through the Service Gateways. It is part of the design and has not been built in this prototype.</p>
+        </article>
+      </div>
     </div>
-    <p class="note">Payload limits, persisted guard state and troubleshooting: <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/ASN/README.md#running">ASN/README.md</a>.</p>
-  </div>
-</section>
+  </section>
 
-<section id="limits">
-  <div class="wrap">
-    <h2>Known limitations</h2>
-    <ul class="limits">
-      <li><strong>Trust bootstrapping.</strong> Node identity keys are pinned trust-on-first-use against a synthetic consensus. There are no directory authorities.</li>
-      <li><strong>Sender paths are fixed.</strong> Receivers draw from a 100-node weighted pool with persistent guards; the Sender uses fixed nodes.</li>
-      <li><strong>Cache Server access control.</strong> The Cache Server binds to loopback and has no application-layer authentication.</li>
-      <li><strong>Small payloads.</strong> At most 463 bytes of application data per packet, less after the content handshake.</li>
-      <li><strong>No Network Gateway.</strong> The link to the public internet exists only in the design.</li>
-      <li><strong>Single host.</strong> All results come from loopback testbeds; there is no wide-area evaluation.</li>
-    </ul>
-    <p class="sub" style="margin-top:28px">To compare several anonymity designs side by side, see <a href="https://github.com/hashtagRR/AnonTestLab">AnonTestLab</a>, a general emulator for anonymity network experiments that grew out of this project.</p>
-  </div>
-</section>
+  <section id="flow">
+    <div class="wrap">
+      <div class="section-top reveal">
+        <div class="kicker">03 / How it runs</div>
+        <div>
+          <h2>Publish a value. Fetch it anonymously. Verify it end to end.</h2>
+        </div>
+      </div>
+
+      <div class="workflow reveal">
+        <div class="flow">
+          <div class="step"><code>01</code><b>Build paths</b><span>Eight ECDHE handshakes with signed node descriptors: six hops drawn from a weighted pool, two with the Service Gateway.</span></div>
+          <div class="step"><code>02</code><b>Publish</b><span>The Sender PUTs signed, encrypted content through its own paths to the Cache Server.</span></div>
+          <div class="step"><code>03</code><b>Request</b><span>The Receiver sends a GET over path A, carrying a pre-built return header for path B.</span></div>
+          <div class="step"><code>04</code><b>Agree a key</b><span>Receiver and Sender negotiate a per-request content key, relayed through the Cache Server.</span></div>
+          <div class="step"><code>05</code><b>Return</b><span>The response comes back over path B; the Receiver checks the signature and decrypts.</span></div>
+        </div>
+      </div>
+
+      <div class="split">
+        <div class="codepanel reveal">
+          <div class="codehead"><i class="dot"></i><i class="dot"></i><i class="dot"></i>&nbsp;&nbsp; terminal</div>
+<pre><span class="cm"># build, then start the whole network</span>
+<span class="pr">$</span> cd ASN &amp;&amp; make nodes
+<span class="pr">$</span> (cd ../tests/ASN &amp;&amp; ./start_nodes_pool.sh)
+
+<span class="cm"># terminal 1: publish, and leave the Sender running</span>
+<span class="pr">$</span> ./sender.exe
+<span class="am">&gt;</span> PUT mykey hello
+
+<span class="cm"># terminal 2: fetch through the network</span>
+<span class="pr">$</span> ./client.exe
+<span class="am">&gt;</span> GET mykey
+<span class="ok">Response (5 bytes, signature verified,
+confidentiality-protected): hello</span></pre>
+        </div>
+
+        <div class="reveal">
+          <div class="kicker">Build variants</div>
+          <h3 style="font-size:36px;letter-spacing:-.04em;margin:12px 0 24px;line-height:1.08">Every defence is a compile-time flag.</h3>
+          <div class="feature-list">
+            <div class="feature-row"><strong><code>make nodes</code></strong><span>Sphinx forwarding with bidirectional cover traffic at a per-client rate tier.</span></div>
+            <div class="feature-row"><strong><code>make hardened</code></strong><span>Shared fixed-rate dispatch clock plus exponential per-hop mixing delay.</span></div>
+            <div class="feature-row"><strong><code>make poolmix</code></strong><span>Batch mixing at each hop instead of per-packet delay.</span></div>
+            <div class="feature-row"><strong><code>make hopdecoy</code></strong><span>Decoys terminated at each hop; combines with the two above.</span></div>
+            <div class="feature-row"><strong><code>make instrumented</code></strong><span>Timing and bandwidth probes for benchmarks.</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="research" id="findings">
+    <div class="wrap">
+      <div class="section-top reveal">
+        <div class="kicker">04 / Findings</div>
+        <div>
+          <h2>Tested against its own claims, including where it falls short.</h2>
+          <p class="subcopy">Every result below comes from a seeded script or a live measurement in the repository.</p>
+        </div>
+      </div>
+
+      <div class="questions">
+        <article class="question reveal"><small>Compromise</small><span class="big">f<sup>4</sup> against f<sup>3</sup></span>
+          <p>Linking a receiver to a service takes four compromised positions, one more than a Tor onion service. All of that margin comes from role separation, and at f = 0.1 it is gone once operators correlate beyond about 0.01.</p></article>
+        <article class="question neg reveal"><small>Dual paths alone</small><span class="big">No gain</span>
+          <p>One path's entry and exit already give routing-level linkage. Against the plain build a passive correlator reaches TPR 0.998 to 1.000 at FPR 10<sup>-3</sup>, the same as against a single path.</p></article>
+        <article class="question reveal"><small>Per-hop mixing delay</small><span class="big">TPR 0.006</span>
+          <p>The hardened build brings a sequence correlator down from ceiling, at a measured throughput cost.</p></article>
+        <article class="question reveal"><small>Hop decoys with batch mixing</small><span class="big">100% to 28.5%</span>
+          <p>Detection by a GRU correlator at FPR 10<sup>-3</sup> when decoys are terminated and batch-mixed at each hop.</p></article>
+        <article class="question neg reveal"><small>Adaptive cover traffic</small><span class="big">AUC 1.0</span>
+          <p>Load-adaptive cover leaks activity level once real load passes about 1.5 times the cover ceiling. Constant-rate cover stays at chance.</p></article>
+        <article class="question reveal"><small>Reproducible</small><span class="big">One command each</span>
+          <p>Each simulation runs from a single seeded command. See <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/ASN/eval2/README.md">ASN/eval2</a> for the full list.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="cost">
+    <div class="wrap">
+      <div class="section-top reveal">
+        <div class="kicker">05 / Cost</div>
+        <div>
+          <h2>Measured against a matched onion-routing baseline.</h2>
+          <p class="subcopy">The repository includes a single-path, three-hop onion-routing implementation on the same crypto library and testbed, so the comparison isolates the protocol.</p>
+        </div>
+      </div>
+      <div class="stats reveal">
+        <div class="stat"><small>Path construction</small><span class="v">6.32 ms</span><span class="vs">8 handshakes, against <b>0.83 ms</b> for 3</span></div>
+        <div class="stat"><small>Per-hop processing</small><span class="v">5.0 &micro;s</span><span class="vs">constant-cost AES-CTR blinding</span></div>
+        <div class="stat"><small>Throughput, 200 sessions</small><span class="v">8.9 Mbps</span><span class="vs">against <b>11.7 Mbps</b> on 16 vCPU</span></div>
+        <div class="stat"><small>Live GET with key handshake</small><span class="v">1.46 s</span><span class="vs"><b>3.15 s</b> with 50 ms per-hop mixing</span></div>
+      </div>
+      <p class="footnote reveal">Measured over loopback; absolute numbers depend on hardware. Data files and machine specs: <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/results/README.md">results/README.md</a>.</p>
+    </div>
+  </section>
+
+  <section id="scope">
+    <div class="wrap limits">
+      <div class="reveal">
+        <div class="kicker">06 / Scope</div>
+        <h2 style="margin-top:14px">A research prototype, with its shortcuts in plain view.</h2>
+        <p class="subcopy">Anon-Sec-Net exists to study a design question. These simplifications belong in any result built on it.</p>
+      </div>
+      <div class="reveal">
+        <div class="limit"><strong>No directory authorities.</strong><span>Node identity keys are pinned trust-on-first-use against a synthetic consensus, so first contact with a node is unverified.</span></div>
+        <div class="limit"><strong>Sender paths are fixed.</strong><span>Receivers draw from a 100-node weighted pool with persistent guards; the Sender uses fixed nodes.</span></div>
+        <div class="limit"><strong>No Network Gateway yet.</strong><span>The link to the public internet exists only in the design.</span></div>
+        <div class="limit"><strong>Cache Server access control.</strong><span>The Cache Server binds to loopback and has no application-layer authentication.</span></div>
+        <div class="limit"><strong>Small payloads.</strong><span>At most 463 bytes of application data per packet, less after the content handshake.</span></div>
+        <div class="limit"><strong>Single host.</strong><span>All results come from loopback testbeds; there is no wide-area evaluation.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:18px">
+    <div class="wrap">
+      <div class="license-card reveal">
+        <div>
+          <div class="kicker">07 / Licence</div>
+          <h2 style="margin-top:14px">Free software.</h2>
+        </div>
+        <div class="license-copy">
+          <p>Anon-Sec-Net is released under the <strong>GNU General Public License v3.0 or later</strong>. Study it, change it, break it and publish what you find.</p>
+          <p>Files adapted from DeepCoFFEA for the flow-correlation baseline keep their MIT licence.</p>
+          <a class="license-link" href="https://github.com/hashtagRR/AnonSecNet/blob/main/LICENSE" target="_blank" rel="noreferrer">Read the licence</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:15px">
+    <div class="wrap">
+      <div class="cta reveal">
+        <div>
+          <div class="kicker">Open source, GPL-3.0-or-later</div>
+          <h2 style="margin:12px 0 18px">Split the duties.<br/>Run the network.<br/>Attack the result.</h2>
+          <p>Clone the repository, bring up the pool network and fetch your first value in a few minutes. Then switch on a defence and measure what it buys.</p>
+          <p>To compare several anonymity designs side by side, see <a href="https://github.com/hashtagRR/AnonTestLab">AnonTestLab</a>, a general emulator that grew out of this project.</p>
+        </div>
+        <a class="btn" href="https://github.com/hashtagRR/AnonSecNet" target="_blank" rel="noreferrer">Explore the repository</a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer>
-  <div class="wrap">
-    <span>Anon-Sec-Net. Copyright 2026 the Anon-Sec-Net contributors. GPL-3.0-or-later.</span>
-    <span><a href="https://github.com/hashtagRR/AnonSecNet">github.com/hashtagRR/AnonSecNet</a></span>
+  <div class="wrap footerline">
+    <span>Anon-Sec-Net. Separation of duties for anonymous communication.</span>
+    <span>Research prototype, GPL-3.0-or-later. Copyright 2026 the Anon-Sec-Net contributors.</span>
   </div>
 </footer>
+
+<script>
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  const navLinks = [...document.querySelectorAll('.navlinks a[data-nav]')];
+  const sections = navLinks.map((l) => document.getElementById(l.dataset.nav)).filter(Boolean);
+  const setActive = (id) => navLinks.forEach((l) => {
+    const on = l.dataset.nav === id;
+    l.classList.toggle('active', on);
+    if (on) l.setAttribute('aria-current', 'location'); else l.removeAttribute('aria-current');
+  });
+  const update = () => {
+    const marker = window.scrollY + 118;
+    let current = '';
+    sections.forEach((s) => { if (s.offsetTop <= marker) current = s.id; });
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 12 && sections.length) current = sections[sections.length - 1].id;
+    setActive(current);
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+  update();
+</script>
 </body>
 </html>
