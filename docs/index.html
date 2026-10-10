@@ -97,6 +97,7 @@ h2 { font-size: 28px; letter-spacing: -.01em; margin: 0 0 12px; }
 .r-gw { --c: var(--gw); --cbg: var(--gw-bg); }
 .r-cache { --c: var(--cache); --cbg: var(--cache-bg); }
 .r-end { --c: var(--end); --cbg: var(--end-bg); }
+.r-net { --c: var(--muted); --cbg: var(--bg); border-style: dashed; border-top-style: dashed; }
 
 .findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .finding { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
@@ -159,13 +160,13 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: 
 <section id="design">
   <div class="wrap">
     <h2>Four roles, nobody holds the whole picture</h2>
-    <p class="sub">In onion routing the relays that carry a circuit are also the parties whose collusion breaks it. ASN hands each duty to a different operator. Every party reaches its gateway over two independently routed three-hop paths: one for requests, one for responses on a pre-built return header.</p>
+    <p class="sub">In onion routing the relays that carry a circuit are also the parties whose collusion breaks it. ASN hands each duty to a different operator. Every party reaches its Service Gateway over two independently routed three-hop paths: one for requests, one for responses on a pre-built return header.</p>
 
     <div class="figure">
-      <img src="architecture.svg" alt="A Receiver and a Sender each reach their own gateway over two three-hop mix paths, path A for requests and path B for responses. The receiver-side and sender-side gateways meet at a cache.">
+      <img src="architecture.svg" alt="A Receiver and a Sender each reach their own Service Gateway over two three-hop mix paths, path A for requests and path B for responses. The two Service Gateways meet at a Cache Server. A planned Network Gateway links the Service Gateways to the internet.">
     </div>
     <div class="legend"><span>Path A, requests</span><span class="dash">Path B, responses</span></div>
-    <p class="note">In the prototype both gateway roles run in one process on one host; the protocol keeps them separate so each could be run by a different operator.</p>
+    <p class="note">In the prototype both Service Gateway roles run in one process on one host; the protocol keeps them separate so each could be run by a different operator. The Network Gateway, drawn dashed, is part of the design but has not been built.</p>
 
     <div style="height:28px"></div>
     <div class="roles">
@@ -178,15 +179,15 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: 
       </div>
       <div class="role r-gw">
         <span class="tag">service_gateway</span>
-        <h3>Gateway</h3>
+        <h3>Service Gateway</h3>
         <dl><dt>Does</dt><dd>Terminates a party's two paths, binds them into one session and brokers its requests.</dd>
         <dt>Sees</dt><dd>The request type and content key.</dd>
         <dt>Never sees</dt><dd>The network address of the party behind the paths.</dd></dl>
       </div>
       <div class="role r-cache">
         <span class="tag">cache_server</span>
-        <h3>Cache</h3>
-        <dl><dt>Does</dt><dd>Stores signed ciphertext and relays the content-key handshake. Only gateways can reach it.</dd>
+        <h3>Cache Server</h3>
+        <dl><dt>Does</dt><dd>Stores signed ciphertext and relays the content-key handshake. Only Service Gateways can reach it.</dd>
         <dt>Sees</dt><dd>Opaque blobs under lookup keys.</dd>
         <dt>Never sees</dt><dd>Plaintext, or any party's address.</dd></dl>
       </div>
@@ -196,6 +197,12 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: 
         <dl><dt>Does</dt><dd>Agree a fresh content key per request; the Sender signs what it publishes.</dd>
         <dt>Sees</dt><dd>Their own traffic.</dd>
         <dt>Never sees</dt><dd>Each other's location.</dd></dl>
+      </div>
+      <div class="role r-net">
+        <span class="tag">planned</span>
+        <h3>Network Gateway</h3>
+        <dl><dt>Does</dt><dd>Connects the network to the public internet; outside servers are reached through the Service Gateways.</dd>
+        <dt>Status</dt><dd>Part of the design, not implemented in this prototype.</dd></dl>
       </div>
     </div>
   </div>
@@ -284,7 +291,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: 
         <h3>Build and start the network</h3>
 <pre>git clone https://github.com/hashtagRR/AnonSecNet.git
 cd AnonSecNet/ASN &amp;&amp; make nodes
-cd ../tests/ASN &amp;&amp; ./start_nodes_pool.sh   <span class="c"># 100 pool mix nodes, gateway, cache</span></pre>
+cd ../tests/ASN &amp;&amp; ./start_nodes_pool.sh   <span class="c"># mix nodes, Service Gateway, Cache Server</span></pre>
       </div></div>
       <div class="step"><div>
         <h3>Publish as the Sender, and leave it running</h3>
@@ -312,8 +319,9 @@ cd ../tests/ASN &amp;&amp; ./start_nodes_pool.sh   <span class="c"># 100 pool mi
     <ul class="limits">
       <li><strong>Trust bootstrapping.</strong> Node identity keys are pinned trust-on-first-use against a synthetic consensus. There are no directory authorities.</li>
       <li><strong>Sender paths are fixed.</strong> Receivers draw from a 100-node weighted pool with persistent guards; the Sender uses fixed nodes.</li>
-      <li><strong>Cache access control.</strong> The cache binds to loopback and has no application-layer authentication.</li>
+      <li><strong>Cache Server access control.</strong> The Cache Server binds to loopback and has no application-layer authentication.</li>
       <li><strong>Small payloads.</strong> At most 463 bytes of application data per packet, less after the content handshake.</li>
+      <li><strong>No Network Gateway.</strong> The link to the public internet exists only in the design.</li>
       <li><strong>Single host.</strong> All results come from loopback testbeds; there is no wide-area evaluation.</li>
     </ul>
     <p class="sub" style="margin-top:28px">To compare several anonymity designs side by side, see <a href="https://github.com/hashtagRR/AnonTestLab">AnonTestLab</a>, a general emulator for anonymity network experiments that grew out of this project.</p>

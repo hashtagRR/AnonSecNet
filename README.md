@@ -26,22 +26,25 @@ duties apart and hand each one to a different operator:
 | Role | Duty | What it sees | What it never sees |
 |---|---|---|---|
 | **Mix node** | Relays fixed-size Sphinx packets, one hop at a time | Previous and next hop, its own per-session hop key | Endpoints, payload, the other path |
-| **Gateway** (receiver side, sender side) | Terminates a party's two paths, brokers requests | The request type and content key | The network address of the party behind the paths |
-| **Cache** | Stores signed ciphertext, relays the content-key handshake; reachable only from gateways | Opaque blobs under lookup keys | Plaintext, and any party's address |
+| **Service Gateway** (receiver side, sender side) | Terminates a party's two paths, brokers requests | The request type and content key | The network address of the party behind the paths |
+| **Cache Server** | Stores signed ciphertext, relays the content-key handshake; reachable only from Service Gateways | Opaque blobs under lookup keys | Plaintext, and any party's address |
 | **Receiver / Sender** | End points | Their own traffic | Each other's location |
+| **Network Gateway** (design only) | Connects the network to the public internet; outside servers are reached through the Service Gateways | Not implemented | Not implemented |
 
-Every party reaches its gateway over **two independently routed paths**:
+Every party reaches its Service Gateway over **two independently routed paths**:
 path A carries requests out, path B carries responses back on a
 pre-built return header. Content is encrypted end to end under a key the
-Receiver and Sender agree on at request time, relayed through the cache,
-and signed by the Sender, so neither gateway nor the cache can read or
+Receiver and Sender agree on at request time, relayed through the Cache Server,
+and signed by the Sender, so neither a Service Gateway nor the Cache Server can read or
 alter it undetected.
 
-<p align="center"><img src="docs/architecture.svg" alt="ASN architecture: a Receiver and a Sender each reach their own gateway over two three-hop mix paths; the two gateways meet at a cache" width="100%"></p>
+<p align="center"><img src="docs/architecture.svg" alt="ASN architecture: a Receiver and a Sender each reach their own Service Gateway over two three-hop mix paths; the two Service Gateways meet at a Cache Server, and a planned Network Gateway links them to the internet" width="100%"></p>
 
-In the prototype both gateway roles run in one `service_gateway` process
-and all nodes run on one host; the roles are separated in the protocol,
-so each could be given to a different operator.
+In the prototype both Service Gateway roles run in one `service_gateway`
+process and all nodes run on one host; the roles are separated in the
+protocol, so each could be given to a different operator. The Network
+Gateway, which would give the network access to the public internet, is
+part of the design but has not been built.
 
 ---
 
@@ -52,8 +55,8 @@ reports negative results alongside positive ones. Exact commands are in
 [`ASN/eval2/README.md`](ASN/eval2/README.md).
 
 **Compromise.** Linking a Receiver to a service needs four compromised
-positions (`f^4`, entry and exit of one path, the receiver-side gateway
-and the cache), against `f^3` for a Tor onion service. All of that margin
+positions (`f^4`, entry and exit of one path, the receiver-side Service
+Gateway and the Cache Server), against `f^3` for a Tor onion service. All of that margin
 comes from role separation. Dual paths alone add nothing here: an
 adversary holding one path's entry and exit already has routing-level
 linkage (`f^2`). The margin is also fragile. At `f = 0.1` it disappears
@@ -105,7 +108,7 @@ Debian and Ubuntu, `openssl-devel` on Fedora), Python 3.8 or newer.
 git clone https://github.com/hashtagRR/AnonSecNet.git
 cd AnonSecNet/ASN && make nodes
 
-# Start 100 pool mix nodes, the sender-path mix nodes, gateway and cache
+# Start 100 pool mix nodes, the sender-path mix nodes, Service Gateway and Cache Server
 cd ../tests/ASN && ./start_nodes_pool.sh
 ```
 
@@ -189,11 +192,14 @@ docs/                 project page and figures
 - **Static guards and sender paths.** Receivers draw paths from a
   100-node weighted pool with persistent guard sets; the Sender still
   uses fixed sender-path nodes.
-- **Cache access control.** The cache server binds to loopback and has
+- **Cache Server access control.** The Cache Server binds to loopback and has
   no application-layer authentication.
 - **Small payloads.** A packet carries at most 463 bytes of application
   data, and the content handshake uses part of that. Keep test values
   short.
+- **No Network Gateway.** The link from the network to the public
+  internet exists only in the design; the prototype carries Sender and
+  Receiver traffic only.
 - **Single host.** All results come from loopback testbeds. There is no
   wide-area evaluation.
 - **Portability layer.** The code started on Windows and runs on Linux
