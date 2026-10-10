@@ -1,16 +1,14 @@
-# Results: paper-backing measurement data
+# Results: benchmark measurement data
 
-Curated measurement CSVs backing the live-network benchmark numbers in
-the paper (aggregate throughput, per-hop cryptographic cost, path
-construction time, cover-traffic overhead, and the content-retrieval
-overhead section). Referenced by description here rather than by
-Table/Figure number, since those numbers shift as the paper is revised;
-see the paper's own section headings to match a number to a description.
-This is not the project's full measurement history: it's the
-specific runs each currently-published number traces back to, kept here
-because they are expensive to reproduce (multi-machine sweeps across
-2/4/12/16-vCPU hosts) and reviewers may want to check a number without
-re-running the full benchmark suite themselves.
+Curated measurement CSVs backing the live-network benchmark numbers
+quoted in this repository (aggregate throughput, per-hop cryptographic
+cost, path construction time, cover-traffic overhead and
+content-retrieval overhead). File names carry historical figure and
+table numbers; the sections below say what each file measures. This is
+not the project's full measurement history: it holds the specific runs
+each quoted number traces back to, kept because they are expensive to
+reproduce (multi-machine sweeps across 2/4/12/16-vCPU hosts), so a
+number can be checked without re-running the full benchmark suite.
 
 The Monte Carlo/attack-simulation results in [`../ASN/eval2/`](../ASN/eval2/)
 are **not** duplicated here: every one of those is reproducible in
@@ -44,7 +42,7 @@ Run the plot scripts from `ASN/` so the `../results/` defaults resolve.
 |------|---------|-------|
 | `table2_throughput_16vcpu.csv` + `_tor.csv` | 16 vCPU / 16 GB (GCP, `n2-custom-16-16384`) | The throughput table's headline numbers: ASN 94.2 -> 8,878.7 kbps, Tor-equivalent 82.2 -> 11,713.4 kbps, N=1..200 |
 | `table2_throughput_16vcpu_reverification_asn.csv` + `_tor.csv` | same 16-vCPU spec, independent re-run after a later security-fix pass | Confirms no regression at N=5-200 (within +-4.1%); N=1 flaked to 0 samples in this specific run, a known harness artifact, not re-cited |
-| `table2_throughput_4vcpu_dosresponse.csv` | 4 vCPU / 7.8 GB (dev box) | The paper's cross-machine dose-response discussion: throughput peaks then declines past N~50-100 on smaller machines, a hardware concurrency ceiling, not a protocol limit |
+| `table2_throughput_4vcpu_dosresponse.csv` | 4 vCPU / 7.8 GB (dev box) | Cross-machine dose response: throughput peaks then declines past N~50-100 on smaller machines, a hardware concurrency ceiling, not a protocol limit |
 | `table2_throughput_2vcpu_historical.csv` | 2 vCPU (hardware no longer available) | Third point in the same dose-response argument (severe decline at 2 vCPU, partial at 4, absent at 16) |
 | `table2_throughput_12vcpu_plain.csv` + `table2_throughput_12vcpu_hardened.csv` | 12 vCPU | Matched plain-vs-hardened (`ASN_LOOPIX_MIXING`) throughput comparison |
 
@@ -84,22 +82,22 @@ to 1024 for a full 1,000-rep run. See
 
 `figure7_cover_overhead_hardened.csv`: live-binary measurement under
 the hardened (`ASN_LOOPIX_MIXING`) build, 82.1% overhead at 10% load
-falling to ~0% by 70% load. This is the paper's "Hardened" curve.
+falling to ~0% by 70% load. This is the "Hardened" cover-overhead curve.
 
-The paper's "Adaptive" curve (production discipline, 69.8% at 10% load
+The "Adaptive" curve (production discipline, 69.8% at 10% load
 falling to 0.03% at 90% load) comes from `eval2/`'s validated simulator
 (`coverleak_run.py`'s `asn_adaptive` scheme), not a live binary
 measurement yet; reproduce it via `eval2/README.md`'s Task C, not from
-a file in this directory. See the paper's own methodology note
-(Cover Traffic Bandwidth Overhead section) for why the two curves come
-from different measurement methods.
+a file in this directory. The two curves come from different
+measurement methods because the instrumented harness predates the
+adaptive cover discipline.
 
 ## Content-retrieval overhead ($K_\text{session}$/$K_\text{content}$ handshake)
 
 `content_retrieval_ksession_handshake_throughput.csv`: production
 `client.exe`/`sender.exe` binaries under the live per-request handshake
 (not the `*_instrumented.exe` harness used for the figures above, which
-predates this mechanism). Backs the paper's "sustains 7.66-7.78 GET/s
+predates this mechanism). Backs the "sustains 7.66-7.78 GET/s
 at K=50-200 concurrent sessions with 100% completion" figure. See
 [`../ASN/README.md`](../ASN/README.md#running) for how to run this live.
 

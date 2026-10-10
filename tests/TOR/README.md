@@ -1,6 +1,6 @@
 # tests/TOR: Tor-Equivalent Benchmark Programs
 
-Standalone benchmark programs for the Tor-equivalent baseline. Most run entirely in-process (no live nodes needed) and produce the CSV data for the paper figures.
+Standalone benchmark programs for the Tor-equivalent baseline. Most run entirely in-process (no live nodes needed) and produce the benchmark CSV data.
 
 ---
 
@@ -8,10 +8,8 @@ Standalone benchmark programs for the Tor-equivalent baseline. Most run entirely
 
 ### Benchmark programs
 
-File names are historical (`fig2`/`fig3`/etc.) and no longer match the
-paper's own Table/Figure numbering, which has shifted across revisions;
-what each program measures is stable even when the paper's numbering
-isn't.
+File names are historical (`fig2`/`fig3`/etc.). The table below says
+what each program measures.
 
 | File | Live nodes needed? | What it measures |
 |------|-------------------|-----------------|
@@ -83,7 +81,7 @@ Four in-process P-256 ECDHE handshakes (Guard + Middle + Exit + end-to-end), 100
 tor_bench_fig4.exe > results_tor_fig4.csv
 ```
 
-Monte Carlo: 10,000 sessions per f-value. Reports both f² (entry-exit correlation, the dominant practical attack) and f³ (full 3-hop path compromise, the theoretical bound used in the paper). Also reports ASN's f² (routing-only) and f⁴ (service-level, the meaningful figure) for direct comparison.
+Monte Carlo: 10,000 sessions per f-value. Reports both f² (entry-exit correlation, the dominant practical attack) and f³ (full 3-hop path compromise, the full-path bound). Also reports ASN's f² (routing-only) and f⁴ (service-level, the meaningful figure) for direct comparison.
 
 ### Cover traffic bandwidth overhead (no nodes needed)
 

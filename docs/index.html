@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anon-Sec-Net</title>
+<meta name="description" content="A C research prototype of anonymous communication built on separation of duties: routing, brokering and storage in separate hands.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fbfaf7;
+  --surface: #ffffff;
+  --ink: #16191f;
+  --muted: #5a6170;
+  --line: #e3e1db;
+  --accent: #2b4c7e;
+  --accent-ink: #ffffff;
+  --mix: #2b4c7e;   --mix-bg: #e6eef9;
+  --gw: #a86f12;    --gw-bg: #fdf1dc;
+  --cache: #2e7a4b; --cache-bg: #e5f3ea;
+  --end: #333a45;   --end-bg: #efeff0;
+  --warn-bg: #fff6e5; --warn-line: #e7c27a;
+  --code-bg: #12151b; --code-ink: #e4e7ec;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216; --surface: #171b21; --ink: #e8eaee; --muted: #9aa2b1; --line: #2a303a;
+    --accent: #8fb2e8; --accent-ink: #0f1216;
+    --mix: #8fb2e8; --mix-bg: #1b2636;
+    --gw: #e6b35c; --gw-bg: #2d2416;
+    --cache: #7cc79a; --cache-bg: #17281e;
+    --end: #c9ced8; --end-bg: #22272f;
+    --warn-bg: #2a2214; --warn-line: #7a5d22;
+    --code-bg: #0a0c10; --code-ink: #e4e7ec;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1216; --surface: #171b21; --ink: #e8eaee; --muted: #9aa2b1; --line: #2a303a;
+  --accent: #8fb2e8; --accent-ink: #0f1216;
+  --mix: #8fb2e8; --mix-bg: #1b2636;
+  --gw: #e6b35c; --gw-bg: #2d2416;
+  --cache: #7cc79a; --cache-bg: #17281e;
+  --end: #c9ced8; --end-bg: #22272f;
+  --warn-bg: #2a2214; --warn-line: #7a5d22;
+  --code-bg: #0a0c10; --code-ink: #e4e7ec;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 17px/1.6 var(--sans);
+}
+a { color: var(--accent); }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+@media (min-width: 720px) { .wrap { padding: 0 32px; } }
+
+header.top { border-bottom: 1px solid var(--line); }
+header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+.brand { font-weight: 700; letter-spacing: .01em; text-decoration: none; color: var(--ink); }
+.brand span { color: var(--muted); font-weight: 500; }
+nav a { color: var(--muted); text-decoration: none; margin-left: 20px; font-size: 15px; }
+nav a:hover { color: var(--ink); }
+@media (max-width: 640px) { nav a.opt { display: none; } }
+
+.hero { padding: 72px 0 40px; }
+.eyebrow { font: 500 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(34px, 6vw, 56px); line-height: 1.08; margin: 16px 0 20px; letter-spacing: -.02em; max-width: 16ch; }
+.lede { font-size: 20px; color: var(--muted); max-width: 60ch; margin: 0 0 28px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-block; padding: 11px 18px; border-radius: 8px; font-weight: 600; font-size: 15px; text-decoration: none; border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.notice { margin: 32px 0 0; padding: 14px 18px; border: 1px solid var(--warn-line); background: var(--warn-bg); border-radius: 10px; font-size: 15px; max-width: 760px; }
+
+section { padding: 56px 0; border-top: 1px solid var(--line); }
+h2 { font-size: 28px; letter-spacing: -.01em; margin: 0 0 12px; }
+.sub { color: var(--muted); max-width: 66ch; margin: 0 0 32px; }
+
+.figure { background: #ffffff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.figure img { display: block; width: 100%; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; font-size: 14px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 22px; vertical-align: middle; margin-right: 8px; border-top: 2px solid var(--muted); }
+.legend span.dash::before { border-top-style: dashed; }
+
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.role { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 12px; padding: 20px; }
+.role h3 { margin: 0 0 6px; font-size: 18px; }
+.role .tag { display: inline-block; font: 500 12px/1 var(--mono); padding: 5px 8px; border-radius: 6px; background: var(--cbg); color: var(--c); margin-bottom: 12px; }
+.role dl { margin: 0; font-size: 15px; }
+.role dt { font-weight: 600; margin-top: 10px; }
+.role dd { margin: 2px 0 0; color: var(--muted); }
+.r-mix { --c: var(--mix); --cbg: var(--mix-bg); }
+.r-gw { --c: var(--gw); --cbg: var(--gw-bg); }
+.r-cache { --c: var(--cache); --cbg: var(--cache-bg); }
+.r-end { --c: var(--end); --cbg: var(--end-bg); }
+
+.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.finding { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
+.finding .k { font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.finding .v { font-size: 30px; font-weight: 700; margin: 10px 0 6px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.finding p { margin: 0; font-size: 15px; color: var(--muted); }
+.finding.neg .v { color: var(--muted); }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 560px; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+code { font: 14px var(--mono); }
+td code, p code, li code { background: var(--bg); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; }
+.note { font-size: 14px; color: var(--muted); margin-top: 12px; }
+
+.steps { display: grid; gap: 18px; counter-reset: s; }
+.step { display: grid; grid-template-columns: 36px 1fr; gap: 14px; }
+.step::before { counter-increment: s; content: counter(s); width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.step h3 { margin: 4px 0 8px; font-size: 17px; }
+pre { margin: 0; background: var(--code-bg); color: var(--code-ink); padding: 14px 16px; border-radius: 10px; overflow-x: auto; font: 14px/1.55 var(--mono); }
+pre .c { color: #8b93a3; }
+pre .o { color: #9fd3a8; }
+
+ul.limits { padding-left: 20px; max-width: 72ch; }
+ul.limits li { margin-bottom: 10px; }
+
+footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#">Anon-Sec-Net <span>ASN</span></a>
+    <nav>
+      <a class="opt" href="#design">Design</a>
+      <a class="opt" href="#findings">Findings</a>
+      <a href="#start">Quickstart</a>
+      <a href="https://github.com/hashtagRR/AnonSecNet">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="wrap hero">
+  <div class="eyebrow">Research prototype in C, GPL-3.0</div>
+  <h1>Anonymous communication with the duties split apart</h1>
+  <p class="lede">ASN gives routing, brokering and storage to separate roles, so no single piece of infrastructure holds enough to link a receiver to the service it talks to. The repository has the prototype, a matched onion-routing baseline and the attack simulations used to test the idea.</p>
+  <div class="cta">
+    <a class="btn primary" href="#start">Run it locally</a>
+    <a class="btn" href="https://github.com/hashtagRR/AnonSecNet">Source on GitHub</a>
+  </div>
+  <p class="notice"><strong>Research code.</strong> ASN has no directory authorities, pins node keys trust-on-first-use and has only been run on a single host. It is for studying a design, not for protecting real traffic.</p>
+</div>
+
+<section id="design">
+  <div class="wrap">
+    <h2>Four roles, nobody holds the whole picture</h2>
+    <p class="sub">In onion routing the relays that carry a circuit are also the parties whose collusion breaks it. ASN hands each duty to a different operator. Every party reaches its gateway over two independently routed three-hop paths: one for requests, one for responses on a pre-built return header.</p>
+
+    <div class="figure">
+      <img src="architecture.svg" alt="A Receiver and a Sender each reach their own gateway over two three-hop mix paths, path A for requests and path B for responses. The receiver-side and sender-side gateways meet at a cache.">
+    </div>
+    <div class="legend"><span>Path A, requests</span><span class="dash">Path B, responses</span></div>
+    <p class="note">In the prototype both gateway roles run in one process on one host; the protocol keeps them separate so each could be run by a different operator.</p>
+
+    <div style="height:28px"></div>
+    <div class="roles">
+      <div class="role r-mix">
+        <span class="tag">mix_node</span>
+        <h3>Mix node</h3>
+        <dl><dt>Does</dt><dd>Relays 1024-byte Sphinx packets one hop at a time, blinding the payload with AES-CTR.</dd>
+        <dt>Sees</dt><dd>The previous and next hop.</dd>
+        <dt>Never sees</dt><dd>Endpoints, payload, or the other path.</dd></dl>
+      </div>
+      <div class="role r-gw">
+        <span class="tag">service_gateway</span>
+        <h3>Gateway</h3>
+        <dl><dt>Does</dt><dd>Terminates a party's two paths, binds them into one session and brokers its requests.</dd>
+        <dt>Sees</dt><dd>The request type and content key.</dd>
+        <dt>Never sees</dt><dd>The network address of the party behind the paths.</dd></dl>
+      </div>
+      <div class="role r-cache">
+        <span class="tag">cache_server</span>
+        <h3>Cache</h3>
+        <dl><dt>Does</dt><dd>Stores signed ciphertext and relays the content-key handshake. Only gateways can reach it.</dd>
+        <dt>Sees</dt><dd>Opaque blobs under lookup keys.</dd>
+        <dt>Never sees</dt><dd>Plaintext, or any party's address.</dd></dl>
+      </div>
+      <div class="role r-end">
+        <span class="tag">client / sender</span>
+        <h3>Receiver and Sender</h3>
+        <dl><dt>Does</dt><dd>Agree a fresh content key per request; the Sender signs what it publishes.</dd>
+        <dt>Sees</dt><dd>Their own traffic.</dd>
+        <dt>Never sees</dt><dd>Each other's location.</dd></dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="findings">
+  <div class="wrap">
+    <h2>What the evaluation found</h2>
+    <p class="sub">Every number below comes from a seeded script or a live measurement in the repository. Where the design does not help, the results say so.</p>
+    <div class="findings">
+      <div class="finding">
+        <div class="k">Compromise</div>
+        <div class="v">f<sup>4</sup> vs f<sup>3</sup></div>
+        <p>Linking a receiver to a service takes four compromised positions against three for a Tor onion service. All of that margin comes from role separation, and at f = 0.1 it is gone once operator correlation passes about 0.01.</p>
+      </div>
+      <div class="finding neg">
+        <div class="k">Dual paths alone</div>
+        <div class="v">no gain</div>
+        <p>One path's entry and exit already give routing-level linkage (f<sup>2</sup>). Against the plain build a passive correlator reaches TPR 0.998 to 1.000 at FPR 1e-3, the same as against the single-path baseline.</p>
+      </div>
+      <div class="finding">
+        <div class="k">Per-hop mixing delay</div>
+        <div class="v">TPR 0.006</div>
+        <p>The hardened build (shared dispatch clock plus per-hop delay) brings a sequence correlator down from ceiling, at a measured throughput cost.</p>
+      </div>
+      <div class="finding">
+        <div class="k">Hop decoys + batch mixing</div>
+        <div class="v">100% to 28.5%</div>
+        <p>Terminating decoys at each hop and batch-mixing cuts detection by a GRU correlator at FPR 1e-3.</p>
+      </div>
+      <div class="finding neg">
+        <div class="k">Adaptive cover</div>
+        <div class="v">AUC 1.0</div>
+        <p>Load-adaptive cover leaks activity level once real load passes about 1.5 times the cover ceiling. Constant-rate cover stays at chance.</p>
+      </div>
+    </div>
+    <p class="note">Commands and full results: <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/ASN/eval2/README.md">ASN/eval2/README.md</a>.</p>
+  </div>
+</section>
+
+<section id="performance">
+  <div class="wrap">
+    <h2>Cost against an onion-routing baseline</h2>
+    <p class="sub">The repository includes a single-path, three-hop onion-routing implementation on the same crypto library and testbed, so the comparison isolates the protocol. Measured on the live binaries over loopback; absolute numbers depend on hardware.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Metric</th><th>ASN</th><th>Tor-equivalent</th></tr></thead>
+        <tbody>
+          <tr><td>Path construction, mean of 1,000</td><td class="num">6.32 ms, 8 handshakes</td><td class="num">0.83 ms, 3 handshakes</td></tr>
+          <tr><td>Per-hop packet processing</td><td>about 5.0 &micro;s, constant-cost AES-CTR blinding</td><td>AES-GCM decrypt and re-encrypt</td></tr>
+          <tr><td>Aggregate throughput, 1 to 200 sessions, 16 vCPU</td><td class="num">94.2 to 8,878.7 kbps</td><td class="num">82.2 to 11,713.4 kbps</td></tr>
+          <tr><td>Live GET with content handshake, n = 12</td><td>1.46 s mean; 3.15 s with 50 ms per-hop mixing</td><td>n/a</td></tr>
+          <tr><td>Sustained retrieval, 50 to 200 concurrent sessions</td><td class="num">7.66 to 7.78 GET/s, 100% completion</td><td>n/a</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Data files and machine specs: <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/results/README.md">results/README.md</a>.</p>
+  </div>
+</section>
+
+<section id="variants">
+  <div class="wrap">
+    <h2>Build variants</h2>
+    <p class="sub">Each defence is a compile-time flag, so plain and hardened nodes can be compared on the same code.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Target</th><th>Adds</th></tr></thead>
+        <tbody>
+          <tr><td><code>make nodes</code></td><td>Sphinx forwarding with bidirectional cover traffic at a per-client rate tier</td></tr>
+          <tr><td><code>make hardened</code></td><td>Shared fixed-rate dispatch clock plus exponential per-hop mixing delay</td></tr>
+          <tr><td><code>make poolmix</code></td><td>Batch mixing at each hop instead of per-packet delay</td></tr>
+          <tr><td><code>make hopdecoy</code></td><td>Decoys terminated at each hop; combines with the two above</td></tr>
+          <tr><td><code>make instrumented</code></td><td>Timing and bandwidth probes for benchmarks</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <h2>Quickstart</h2>
+    <p class="sub">Needs GCC, Make, OpenSSL development headers and Python 3.8 or newer. Tested on Debian and Ubuntu.</p>
+    <div class="steps">
+      <div class="step"><div>
+        <h3>Build and start the network</h3>
+<pre>git clone https://github.com/hashtagRR/AnonSecNet.git
+cd AnonSecNet/ASN &amp;&amp; make nodes
+cd ../tests/ASN &amp;&amp; ./start_nodes_pool.sh   <span class="c"># 100 pool mix nodes, gateway, cache</span></pre>
+      </div></div>
+      <div class="step"><div>
+        <h3>Publish as the Sender, and leave it running</h3>
+<pre>cd AnonSecNet/ASN &amp;&amp; ./sender.exe
+&gt; PUT mykey hello</pre>
+      </div></div>
+      <div class="step"><div>
+        <h3>Fetch as the Receiver from a second terminal</h3>
+<pre>cd AnonSecNet/ASN &amp;&amp; ./client.exe
+&gt; GET mykey
+<span class="o">Response (5 bytes, signature verified, confidentiality-protected): hello</span></pre>
+      </div></div>
+      <div class="step"><div>
+        <h3>Stop the network</h3>
+<pre>tests/ASN/stop_nodes_pool.sh</pre>
+      </div></div>
+    </div>
+    <p class="note">Payload limits, persisted guard state and troubleshooting: <a href="https://github.com/hashtagRR/AnonSecNet/blob/main/ASN/README.md#running">ASN/README.md</a>.</p>
+  </div>
+</section>
+
+<section id="limits">
+  <div class="wrap">
+    <h2>Known limitations</h2>
+    <ul class="limits">
+      <li><strong>Trust bootstrapping.</strong> Node identity keys are pinned trust-on-first-use against a synthetic consensus. There are no directory authorities.</li>
+      <li><strong>Sender paths are fixed.</strong> Receivers draw from a 100-node weighted pool with persistent guards; the Sender uses fixed nodes.</li>
+      <li><strong>Cache access control.</strong> The cache binds to loopback and has no application-layer authentication.</li>
+      <li><strong>Small payloads.</strong> At most 463 bytes of application data per packet, less after the content handshake.</li>
+      <li><strong>Single host.</strong> All results come from loopback testbeds; there is no wide-area evaluation.</li>
+    </ul>
+    <p class="sub" style="margin-top:28px">To compare several anonymity designs side by side, see <a href="https://github.com/hashtagRR/AnonTestLab">AnonTestLab</a>, a general emulator for anonymity network experiments that grew out of this project.</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Anon-Sec-Net. Copyright 2026 the Anon-Sec-Net contributors. GPL-3.0-or-later.</span>
+    <span><a href="https://github.com/hashtagRR/AnonSecNet">github.com/hashtagRR/AnonSecNet</a></span>
+  </div>
+</footer>
+</body>
+</html>

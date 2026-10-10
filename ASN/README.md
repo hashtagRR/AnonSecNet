@@ -54,7 +54,7 @@ of role. **The client's path (MN1/MN2/MN3, MNa/MNb/MNc) is not fixed to
 specific ports.** `client.exe` draws its 6 hops on every session from a
 weighted, 100-node mix-node pool (`common/node_pool.h`: `POOL_SIZE=100`,
 `POOL_PORT_BASE=9100`, so pool nodes listen on ports 9100-9199), matching
-the guard-set/bandwidth-weighted selection scheme described in the paper.
+a guard-set, bandwidth-weighted selection scheme.
 The sender's path (MNi/MNii/MNiii, MNx/MNy/MNz) is unaffected and still
 uses the fixed ports shown above. See [Running](#running) below for how
 to actually bring this topology up. Starting 100+ individual mix-node
@@ -214,8 +214,8 @@ exponent and are kept only for reference; do not use them for new figures.
 
 Point these scripts at your own benchmark CSVs (produced by the
 instrumented binaries in `../tests/ASN/`) to regenerate plots, or at
-the curated data in [`../results/`](../results/), which backs the paper's
-published numbers.
+the curated data in [`../results/`](../results/), which backs the
+published benchmark numbers.
 
 ---
 

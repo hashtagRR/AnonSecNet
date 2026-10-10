@@ -1,6 +1,6 @@
 # tests/ASN: Instrumented Nodes and Measurement Sweeps
 
-Instrumented versions of the ASN nodes and the Python sweep scripts used to collect the paper's measurements. The instrumented nodes emit timing data to CSV; the sweep scripts orchestrate repeated runs.
+Instrumented versions of the ASN nodes and the Python sweep scripts used to collect the benchmark measurements. The instrumented nodes emit timing data to CSV; the sweep scripts orchestrate repeated runs.
 
 The standard (non-instrumented) implementations are in [`../../ASN/`](../../ASN/).
 
@@ -19,9 +19,7 @@ The standard (non-instrumented) implementations are in [`../../ASN/`](../../ASN/
 ### Sweep scripts (Python)
 
 Script names are historical (kept for compatibility with existing
-commands/CSVs) and no longer match the paper's own Table/Figure
-numbering, which has shifted across revisions; what each script
-measures is stable even when the paper's numbering isn't.
+commands/CSVs). The table below says what each one measures.
 
 | Script | Measures | Live nodes required |
 |--------|-------------|---------------------|
@@ -142,7 +140,7 @@ Output: `figure7_cover_overhead_120s.csv` and `figure7_cover_overhead_60s.csv`
 # safe with default MAX_SESSIONS=64
 python ASN_sweep_table2.py --counts 1,5,8 --duration 60
 
-# full paper sweep (requires MAX_SESSIONS=1024)
+# full sweep (requires MAX_SESSIONS=1024)
 python ASN_sweep_table2.py --counts 1,5,10,50,100,200 --duration 60
 ```
 
@@ -184,7 +182,7 @@ make bench_figure2.exe
 
 The sweep scripts above write these CSVs into the current directory
 when run. A curated set of already-collected results backing the
-paper's published numbers (multiple machine specs, since several of
+published numbers (multiple machine specs, since several of
 these are cross-machine comparisons) is available in
 [`../../results/`](../../results/) if you want to check a
 number without re-running the full sweep.

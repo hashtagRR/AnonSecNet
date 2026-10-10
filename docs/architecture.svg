@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 420" width="1100" height="420" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1100" height="420" rx="14" fill="#ffffff"/>
+
+  <!-- Receiver side -->
+  <text x="215" y="40" text-anchor="middle" font-size="15" font-weight="bold" fill="#2b4c7e">Path A: requests</text>
+  <text x="215" y="392" text-anchor="middle" font-size="15" font-weight="bold" fill="#2b4c7e">Path B: responses</text>
+
+  <rect x="20" y="160" width="100" height="80" rx="10" fill="#f2f2f2" stroke="#333" stroke-width="2"/>
+  <text x="70" y="196" text-anchor="middle" font-size="16" font-weight="bold" fill="#111">Receiver</text>
+  <text x="70" y="216" text-anchor="middle" font-size="13" fill="#444">client</text>
+
+  <g fill="#e6eef9" stroke="#2b4c7e" stroke-width="2">
+    <circle cx="150" cy="90" r="22"/><circle cx="215" cy="90" r="22"/><circle cx="280" cy="90" r="22"/>
+    <circle cx="150" cy="330" r="22"/><circle cx="215" cy="330" r="22"/><circle cx="280" cy="330" r="22"/>
+  </g>
+  <g font-size="12" text-anchor="middle" fill="#2b4c7e" font-weight="bold">
+    <text x="150" y="94">MN1</text><text x="215" y="94">MN2</text><text x="280" y="94">MN3</text>
+    <text x="150" y="334">MNa</text><text x="215" y="334">MNb</text><text x="280" y="334">MNc</text>
+  </g>
+
+  <g stroke="#4a5568" stroke-width="2" fill="none" marker-end="url(#ah)">
+    <path d="M95,160 L135,108"/>
+    <path d="M172,90 L191,90"/><path d="M237,90 L256,90"/>
+    <path d="M298,104 L350,160"/>
+  </g>
+  <g stroke="#4a5568" stroke-width="2" fill="none" marker-end="url(#ah)" stroke-dasharray="6 4">
+    <path d="M350,240 L298,316"/>
+    <path d="M258,330 L239,330"/><path d="M193,330 L174,330"/>
+    <path d="M135,312 L95,240"/>
+  </g>
+
+  <rect x="330" y="160" width="120" height="80" rx="10" fill="#fdf1dc" stroke="#a86f12" stroke-width="2"/>
+  <text x="390" y="196" text-anchor="middle" font-size="16" font-weight="bold" fill="#111">Gateway</text>
+  <text x="390" y="216" text-anchor="middle" font-size="13" fill="#444">receiver side</text>
+
+  <!-- Cache -->
+  <rect x="500" y="160" width="100" height="80" rx="10" fill="#e5f3ea" stroke="#2e7a4b" stroke-width="2"/>
+  <text x="550" y="196" text-anchor="middle" font-size="16" font-weight="bold" fill="#111">Cache</text>
+  <text x="550" y="216" text-anchor="middle" font-size="13" fill="#444">opaque store</text>
+  <g stroke="#4a5568" stroke-width="2" marker-end="url(#ah)" marker-start="url(#ah)">
+    <path d="M454,200 L496,200"/>
+    <path d="M604,200 L646,200"/>
+  </g>
+
+  <!-- Sender side -->
+  <text x="885" y="40" text-anchor="middle" font-size="15" font-weight="bold" fill="#2b4c7e">Sender path A</text>
+  <text x="885" y="392" text-anchor="middle" font-size="15" font-weight="bold" fill="#2b4c7e">Sender path B</text>
+
+  <rect x="650" y="160" width="120" height="80" rx="10" fill="#fdf1dc" stroke="#a86f12" stroke-width="2"/>
+  <text x="710" y="196" text-anchor="middle" font-size="16" font-weight="bold" fill="#111">Gateway</text>
+  <text x="710" y="216" text-anchor="middle" font-size="13" fill="#444">sender side</text>
+
+  <g fill="#e6eef9" stroke="#2b4c7e" stroke-width="2">
+    <circle cx="820" cy="90" r="22"/><circle cx="885" cy="90" r="22"/><circle cx="950" cy="90" r="22"/>
+    <circle cx="820" cy="330" r="22"/><circle cx="885" cy="330" r="22"/><circle cx="950" cy="330" r="22"/>
+  </g>
+  <g font-size="12" text-anchor="middle" fill="#2b4c7e" font-weight="bold">
+    <text x="950" y="94">MNi</text><text x="885" y="94">MNii</text><text x="820" y="94">MNiii</text>
+    <text x="820" y="334">MNx</text><text x="885" y="334">MNy</text><text x="950" y="334">MNz</text>
+  </g>
+  <g stroke="#4a5568" stroke-width="2" fill="none" marker-end="url(#ah)">
+    <path d="M1005,160 L965,108"/>
+    <path d="M928,90 L909,90"/><path d="M863,90 L844,90"/>
+    <path d="M802,104 L750,160"/>
+  </g>
+  <g stroke="#4a5568" stroke-width="2" fill="none" marker-end="url(#ah)" stroke-dasharray="6 4">
+    <path d="M750,240 L802,316"/>
+    <path d="M842,330 L861,330"/><path d="M907,330 L926,330"/>
+    <path d="M965,312 L1005,240"/>
+  </g>
+
+  <rect x="980" y="160" width="100" height="80" rx="10" fill="#f2f2f2" stroke="#333" stroke-width="2"/>
+  <text x="1030" y="196" text-anchor="middle" font-size="16" font-weight="bold" fill="#111">Sender</text>
+  <text x="1030" y="216" text-anchor="middle" font-size="13" fill="#444">hidden service</text>
+</svg>

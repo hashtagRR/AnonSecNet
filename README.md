@@ -1,185 +1,217 @@
 # Anon-Sec-Net (ASN)
 
-A C prototype of a network-layer anonymous communication system, alongside
-a Tor-equivalent baseline implementation and a Python evaluation suite
-covering flow-correlation resistance, cover-traffic behavior, and
-disclosure risk under partial network compromise.
+**[hashtagRR.github.io/AnonSecNet](https://hashtagRR.github.io/AnonSecNet)**
 
-ASN splits an anonymous session across two independently routed paths and
-keeps routing, brokering and service-registry functions in separate
-hands. The prototype and the evaluation suites in this repository measure
-what that split provides against passive and active network-level
-adversaries.
+A research prototype, written in C, of an anonymous communication system
+built on separation of duties. Routing, brokering and storage run as
+separate roles, so no single piece of infrastructure holds enough to link
+a receiver to the service it talks to. The repository ships the
+prototype, a matched single-path onion-routing baseline built on the
+same crypto library and testbed, and the measurement and attack-simulation code used to
+test the design.
+
+> **Research code.** ASN exists to study a design question. It has no
+> directory authorities, pins node keys trust-on-first-use, and has only
+> been run on a single host. Do not use it to protect real traffic. See
+> [Known limitations](#known-limitations).
 
 ---
 
-## Background
+## The idea
 
-ASN was designed as a role-decoupled
-architecture for network-layer anonymous communication ("Anon-Sec-Net: A
-Role-Decoupled Architecture for Network-Layer Anonymous Communication").
-The repository holds the reference implementation, the protocol design and
-the security and performance evaluation of that design, including a
-disclosure ladder that separates routing-level linkage, service disclosure
-and full bidirectional disclosure under partial and correlated
-infrastructure compromise, and two hardening mechanisms (shared-clock cover
-dispatch, per-hop decoy termination with batch mixing).
+In onion routing, the relays that carry a circuit are also the parties
+whose collusion de-anonymises it. ASN asks what happens if you pull those
+duties apart and hand each one to a different operator:
 
-The prototype's client striping, trace probes and exposure scripts also
-serve as an independent second implementation in the study *How Much Does
-One Path Reveal? Correlation Risk and Split-Policy Design for Multipath
-Anonymous Communication*. That study's primary instrument is the AnonTestLab
-emulator (https://github.com/hashtagRR/AnonTestLab); ASN cross-validates
-its split-policy predictions on a real C network stack. The design
-trade-offs listed in `ASN/README.md` (TOFU-style guard pinning, static
-guard sets and the other simplifications noted there) are known properties
-of this prototype.
+| Role | Duty | What it sees | What it never sees |
+|---|---|---|---|
+| **Mix node** | Relays fixed-size Sphinx packets, one hop at a time | Previous and next hop, its own per-session hop key | Endpoints, payload, the other path |
+| **Gateway** (receiver side, sender side) | Terminates a party's two paths, brokers requests | The request type and content key | The network address of the party behind the paths |
+| **Cache** | Stores signed ciphertext, relays the content-key handshake; reachable only from gateways | Opaque blobs under lookup keys | Plaintext, and any party's address |
+| **Receiver / Sender** | End points | Their own traffic | Each other's location |
+
+Every party reaches its gateway over **two independently routed paths**:
+path A carries requests out, path B carries responses back on a
+pre-built return header. Content is encrypted end to end under a key the
+Receiver and Sender agree on at request time, relayed through the cache,
+and signed by the Sender, so neither gateway nor the cache can read or
+alter it undetected.
+
+<p align="center"><img src="docs/architecture.svg" alt="ASN architecture: a Receiver and a Sender each reach their own gateway over two three-hop mix paths; the two gateways meet at a cache" width="100%"></p>
+
+In the prototype both gateway roles run in one `service_gateway` process
+and all nodes run on one host; the roles are separated in the protocol,
+so each could be given to a different operator.
+
+---
+
+## What the evaluation found
+
+The repository includes the scripts behind each of these results, and
+reports negative results alongside positive ones. Exact commands are in
+[`ASN/eval2/README.md`](ASN/eval2/README.md).
+
+**Compromise.** Linking a Receiver to a service needs four compromised
+positions (`f^4`, entry and exit of one path, the receiver-side gateway
+and the cache), against `f^3` for a Tor onion service. All of that margin
+comes from role separation. Dual paths alone add nothing here: an
+adversary holding one path's entry and exit already has routing-level
+linkage (`f^2`). The margin is also fragile. At `f = 0.1` it disappears
+once operator correlation passes about `rho = 0.01`.
+
+**Flow correlation.** Against the plain build, a passive correlator
+reaches a true positive rate of 0.998 to 1.000 at a false positive rate
+of 1e-3, the same as against the single-path baseline. Splitting a
+session over two paths with forwarded cover traffic does not by itself
+resist correlation.
+
+**Hardening.** Two optional build modes change that picture:
+
+- *Shared-clock dispatch with per-hop mixing delay* (`make hardened`)
+  lowers detection for most correlators, down to TPR 0.006 for a
+  sequence correlator that was at ceiling on the plain build.
+- *Per-hop decoy termination with batch mixing* (`ASN_HOP_DECOY`) cuts
+  detection by a GRU correlator from 100% to 28.5% at FPR 1e-3.
+
+**Cover traffic.** Load-adaptive cover ("real traffic takes precedence")
+leaks activity level once real load passes about 1.5 times the cover
+ceiling (classifier AUC 1.0 by 60% load). Constant-rate cover stays at
+chance.
+
+---
+
+## Performance against the onion-routing baseline
+
+Measured on the live C binaries over loopback. Absolute numbers depend
+on hardware; the shape of each comparison is what reproduces. Data and
+machine specs are in [`results/`](results/README.md).
+
+| Metric | ASN | Tor-equivalent |
+|---|---|---|
+| Path construction, mean of 1,000 | 6.32 ms (8 handshakes) | 0.83 ms (3 handshakes) |
+| Per-hop packet processing | about 5.0 us (constant-cost AES-CTR blinding) | AES-GCM decrypt and re-encrypt |
+| Aggregate throughput, 1 to 200 sessions (16 vCPU) | 94.2 to 8,878.7 kbps | 82.2 to 11,713.4 kbps |
+| Live GET with content handshake (n = 12) | 1.46 s mean; 3.15 s with 50 ms per-hop mixing | n/a |
+| Sustained retrieval, 50 to 200 concurrent sessions | 7.66 to 7.78 GET/s, 100% completion | n/a |
+
+---
+
+## Quickstart
+
+Requirements: GCC, Make, OpenSSL development headers (`libssl-dev` on
+Debian and Ubuntu, `openssl-devel` on Fedora), Python 3.8 or newer.
+
+```bash
+git clone https://github.com/hashtagRR/AnonSecNet.git
+cd AnonSecNet/ASN && make nodes
+
+# Start 100 pool mix nodes, the sender-path mix nodes, gateway and cache
+cd ../tests/ASN && ./start_nodes_pool.sh
+```
+
+Publish a value as the Sender, and **leave this process running**; it has
+to answer the Receiver's key handshake:
+
+```bash
+cd ../../ASN && ./sender.exe
+> PUT mykey hello
+```
+
+Fetch it as the Receiver from a second terminal:
+
+```bash
+cd AnonSecNet/ASN && ./client.exe
+> GET mykey
+Response (5 bytes, signature verified, confidentiality-protected): hello
+> quit
+```
+
+Stop everything with `tests/ASN/stop_nodes_pool.sh`. The full
+walkthrough, including payload size limits and how to clear persisted
+guard state between runs, is in [`ASN/README.md`](ASN/README.md#running).
+
+To run the attack simulations (no live network needed):
+
+```bash
+cd ASN/eval2
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python scripts/asn_correlated_disclosure.py --sessions 20000 --seed 20260710 --out-dir .
+```
+
+---
+
+## Build variants
+
+| Target | Adds |
+|---|---|
+| `make nodes` | Plain build: Sphinx forwarding, bidirectional cover traffic at a per-client rate tier |
+| `make hardened` | `ASN_LOOPIX_MIXING`: shared fixed-rate dispatch clock plus exponential per-hop mixing delay |
+| `make poolmix` | `ASN_POOL_MIXING`: batch mixing at each hop instead of per-packet delay |
+| `make hopdecoy` | `ASN_HOP_DECOY`: decoys terminated at each hop; combines with the two above (`hopdecoy_hardened`, `hopdecoy_poolmix`) |
+| `make instrumented` | Timing and bandwidth probes used for the benchmarks |
 
 ---
 
 ## Repository layout
 
 ```
-.
-├── README.md             : this file
-├── ASN/                  : the ASN prototype
-│   ├── README.md
-│   ├── Makefile
-│   ├── common/           : shared crypto, packet format, networking, node pool
-│   ├── client/           : Receiver role: session setup, GET, cover traffic
-│   ├── sender/           : Sender role: session setup, PUT
-│   ├── mix_node/         : relay node (EXTEND, DATA, RESPONSE, COVER)
-│   ├── gateway/          : service gateway + cache server
-│   ├── scripts/          : production benchmark plotting scripts
-│   └── eval2/            : attack-simulation and evaluation suite
-│       ├── README.md
-│       ├── requirements.txt
-│       ├── scripts/      : Monte Carlo + empirical adversary simulations
-│       └── dcf_adapter/  : DeepCoFFEA flow-correlation baseline adapter
-│           ├── README.md
-│           └── Dockerfile.dcf
-│
-├── TOR-equivalent/       : baseline onion-routing implementation for comparison
-│   ├── README.md
-│   ├── Makefile
-│   ├── common/
-│   └── scripts/
-│
-├── results/              : curated data backing the paper's published numbers (see results/README.md)
-│
-└── tests/                : instrumented builds + benchmark/sweep harnesses
-    ├── ASN/
-    │   ├── README.md
-    │   ├── *_instrumented.c        : timing/bandwidth-probed node variants
-    │   ├── start_nodes*.sh / stop_nodes*.sh : network-lifecycle automation
-    │   └── sweep_*.py, *_sweep_*.py : benchmark sweep drivers
-    └── TOR/
-        ├── README.md
-        └── tor_*instrumented.c, tor_bench_*.c
+ASN/                  the prototype
+  common/             crypto (P-256 ECDHE, ECDSA, AES-GCM, AES-CTR, HKDF), Sphinx packets, node pool
+  mix_node/           relay: EXTEND, DATA, RETURN, COVER
+  gateway/            service gateway and cache server
+  client/  sender/    Receiver and Sender
+  eval2/              attack simulations: disclosure models, flow correlation, cover leakage
+  scripts/            plotting for the live benchmarks
+TOR-equivalent/       single-path onion-routing baseline with the same crypto library and testbed
+tests/                instrumented node builds and benchmark sweep drivers
+results/              curated benchmark data with machine specs
+docs/                 project page and figures
 ```
-
-Every directory containing a `README.md` has its own build/run
-instructions and a description of what its scripts produce; see
-[Documentation](#documentation) below for the full list, or jump
-straight to [`ASN/README.md`](ASN/README.md) for the core system and
-[`ASN/eval2/README.md`](ASN/eval2/README.md) for the evaluation suite.
-
----
 
 ## Documentation
 
 | README | Covers |
 |---|---|
-| [`ASN/README.md`](ASN/README.md) | The core prototype: directory layout, network topology, build/run walkthrough (verified working end to end), packet format, config constants, build-time flags, Troubleshooting. **Start here.** |
-| [`ASN/eval2/README.md`](ASN/eval2/README.md) | The attack-simulation/evaluation suite: every Task A/B/C condition, exact commands, and headline findings. |
-| [`ASN/eval2/dcf_adapter/README.md`](ASN/eval2/dcf_adapter/README.md) | The DeepCoFFEA flow-correlation baseline adapter: why it needs a separate Docker environment and how to build/run it. |
-| [`results/README.md`](results/README.md) | Curated measurement data backing the paper's published numbers (throughput, per-hop latency, path construction time, cover-traffic overhead), with the machine spec and exact claim each file backs. |
-| [`TOR-equivalent/README.md`](TOR-equivalent/README.md) | The onion-routing baseline used as the comparison point throughout: build/run instructions and packet format. |
-| [`tests/ASN/README.md`](tests/ASN/README.md) | Instrumented ASN node variants and the sweep scripts that drive them: network-lifecycle automation, per-sweep commands, output files. |
-| [`tests/TOR/README.md`](tests/TOR/README.md) | The Tor-equivalent's own instrumented variants and benchmark sweeps. |
+| [`ASN/README.md`](ASN/README.md) | Topology, build, step-by-step run, packet format, configuration constants, troubleshooting. **Start here.** |
+| [`ASN/eval2/README.md`](ASN/eval2/README.md) | Every attack simulation, its exact command and its result |
+| [`ASN/eval2/dcf_adapter/README.md`](ASN/eval2/dcf_adapter/README.md) | DeepCoFFEA baseline adapter and its Docker environment |
+| [`TOR-equivalent/README.md`](TOR-equivalent/README.md) | The baseline: design differences from ASN, build and run |
+| [`tests/ASN/README.md`](tests/ASN/README.md), [`tests/TOR/README.md`](tests/TOR/README.md) | Instrumented builds and benchmark sweeps |
+| [`results/README.md`](results/README.md) | Benchmark data, the machine each file was measured on, and how to regenerate it |
 
 ---
 
-## Quickstart
+## Known limitations
 
-```bash
-# Build the core system
-cd ASN && make all
+- **Trust bootstrapping.** Node identity keys are pinned
+  trust-on-first-use against a synthetic consensus. There are no
+  directory authorities, so the first contact with a node is unverified.
+- **Static guards and sender paths.** Receivers draw paths from a
+  100-node weighted pool with persistent guard sets; the Sender still
+  uses fixed sender-path nodes.
+- **Cache access control.** The cache server binds to loopback and has
+  no application-layer authentication.
+- **Small payloads.** A packet carries at most 463 bytes of application
+  data, and the content handshake uses part of that. Keep test values
+  short.
+- **Single host.** All results come from loopback testbeds. There is no
+  wide-area evaluation.
+- **Portability layer.** The code started on Windows and runs on Linux
+  through `common/posix_compat.h`, which is why binaries keep the `.exe`
+  suffix.
 
-# Build the Tor-equivalent baseline
-cd ../TOR-equivalent && make
+## Related
 
-# Run the ASN evaluation suite (Monte Carlo + empirical adversary simulations)
-cd ../ASN/eval2
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python scripts/asn_correlated_disclosure.py --sessions 20000 --seed 20260710 --out-dir .
-```
-
-Requires a C toolchain (GCC + OpenSSL dev headers) and Python 3.8+. See
-[`ASN/README.md`](ASN/README.md#prerequisites) for the full prerequisite
-list.
-
-To see the anonymous network actually move content end to end (a
-Sender uploading a value, a Receiver fetching it through the full
-dual-path mix-node topology), see
-[`ASN/README.md`](ASN/README.md#running); that walkthrough is verified
-working step by step and covers the one non-obvious requirement (the
-Sender process has to stay running for a `GET` to succeed).
-
----
-
-## What's in each part
-
-- **`ASN/`**: the prototype itself. Sphinx-style packet format, mix-node
-  relaying, session setup over ECDHE, cover traffic, and two optional
-  hardened-build mechanisms (shared-clock dispatch, pool mixing). See
-  `ASN/README.md` for the packet format and wire protocol.
-- **`TOR-equivalent/`**: a matched-scope onion-routing baseline used as
-  the comparison point for every benchmark and attack simulation.
-- **`tests/`**: instrumented variants of the ASN and Tor-equivalent
-  binaries (adds timing/bandwidth measurement probes) plus the sweep
-  scripts used to drive them across load levels and session counts.
-- **`ASN/eval2/`**: the evaluation suite. Correlated-compromise
-  disclosure modeling, empirical flow-correlation attacks against the
-  dual-path split (fixed statistical correlators, a learned MLP
-  correlator, and a DeepCoFFEA-based deep-learning baseline), and a
-  cover-traffic load-leakage study. Each script is a self-contained,
-  seeded, single-command simulation; see `ASN/eval2/README.md` for the
-  full task list and headline findings.
-
----
-
-## Troubleshooting
-
-Hit an issue running the live network? See
-[`ASN/README.md`'s Troubleshooting section](ASN/README.md#troubleshooting):
-it covers the most common issues (stale ports from a previous run, the
-`GET` handshake requiring a live Sender, content-size limits, benign
-first-run warnings). A few things that apply more broadly:
-
-- **`make` fails with a missing OpenSSL header.** Install the OpenSSL
-  development package: `libssl-dev` on
-  Debian/Ubuntu, `openssl-devel` on Fedora/RHEL.
-- **`eval2/` scripts fail to import a package.** Make sure you're
-  running them from inside the virtualenv you created
-  (`.venv/bin/python`), and that you installed from
-  `ASN/eval2/requirements.txt`.
-- **`dcf_adapter/` training fails or can't find TensorFlow.** That
-  directory uses its own Docker environment, separate from the host
-  virtualenv. See `ASN/eval2/dcf_adapter/README.md`.
-
----
-
-## Notes for reproducing results
-
-Curated benchmark CSVs backing the reported paper results are included in results/. Trained models and the full historical measurement archive are not shipped; evaluation scripts can regenerate the remaining simulation outputs.
-Regenerating a specific figure or table is documented in the relevant subdirectory's `README.md`.
+[AnonTestLab](https://github.com/hashtagRR/AnonTestLab) grew out of this
+project: a general emulator for running controlled experiments on
+anonymity network designs, including multipath splitting, mixing and
+cover traffic. Use it to compare designs; use ASN to study this one in C.
 
 ---
 
 ## Licence
 
-Copyright (C) 2026 the Anon-Sec-Net contributors
+Copyright (C) 2026 the Anon-Sec-Net contributors.
 
 This program is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the Free

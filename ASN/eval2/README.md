@@ -74,10 +74,8 @@ originally-claimed hundred-thousand-fold collapse, an artifact of the
 wrong `f^8` exponent). D1's own independence-case budget is far lower to
 begin with, `N_50≈69` sessions at `ρ=0` (only `64` at `ρ=0.01`); D1 was
 never well protected by the independence assumption, a direct consequence
-of routing-level linkage costing only `f^2`). Closes a gap the paper
-leaves explicit: the Long-Term Intersection Attacks section addresses
-identifier linking but says nothing about the compromise-based repeated-use
-risk.
+of routing-level linkage costing only `f^2`). Identifier-linking analysis
+alone does not capture this compromise-based repeated-use risk.
 
 **Follow-up: does the implementation actually redraw paths per session?**
 
@@ -93,8 +91,13 @@ against the code found **no node-selection logic exists anywhere**:
 intuitively this makes the prototype *safer* against the compromise-based
 ladder (risk never compounds with reuse) but introduces a separate,
 unquantified network-level linkability risk (fixed first-hop contact
-pattern is trivially observable by a passive GPA) that directly bears on
-the paper's claimed GPA-resistance.
+pattern is trivially observable by a passive GPA) that bears directly on
+resistance to a global passive adversary.
+
+This audit predates the client's node-pool path selection
+(`common/node_pool.h`, see `../README.md`): `client.c` now draws its paths
+from a 100-node weighted pool with persistent guards. The Sender path is
+still fixed.
 
 **Follow-up: quantifying that GPA-linkability risk**
 
@@ -110,12 +113,11 @@ Headline: the actual implementation (a single fixed entry node, `M=1`)
 gives a single-vantage-point passive observer **certain linkage on the
 very first session, for free**: a deterministic property of the fixed
 topology, not a probabilistic risk. A properly diverse deployment
-honoring the paper's own Uniformity assumption (entry-node population
+honoring the Uniformity assumption (entry-node population
 `M`) would force the same adversary to wait `O(M)` sessions for even a
 50% chance of one observed hit (e.g. `N_50=347` at `M=500`), and would
 cost instrumenting the entire population for certain linkage, exactly
-what the fixed-topology simplification currently gives away for free.
-Closes the second, more consequential half of the gap Sec. 9 left open.
+what the fixed-topology simplification gives away for free.
 
 ## Task B: Empirical flow-correlation attack on dual-path splitting
 
@@ -188,11 +190,11 @@ from ceiling down to as low as 0.006 for the sequence correlator that
 reached ceiling in the plain build), with one exception at the loosest
 operating point, a partial, correlator-dependent mitigation, not a
 defeat of correlation outright. A factorial ablation isolating the two
-components (see the companion empirical study) finds the per-hop delay
+components (run outside this repository) finds the per-hop delay
 accounts for almost all of this reduction; the shared clock's own
 job is closing the activity-level side channel (Task C below), not this
 flow-correlation result. Comes at a real, measured throughput cost (see
-the paper's Throughput section).
+`../../results/table2_throughput_12vcpu_*.csv`).
 
 **Follow-up: per-hop decoy termination and batch mixing**
 
@@ -232,7 +234,7 @@ Outputs: `cover_leakage.csv`, `figures/fig_coverleak.pdf`/`.eps`.
 Note: an earlier cover-overhead benchmark had been measured under
 `client_instrumented.c`'s Bernoulli fixed-rate cover mechanism, which is
 structurally Loopix-style constant-rate, not the load-adaptive "real
-traffic takes precedence" mechanism the paper describes and production
+traffic takes precedence" mechanism the design specifies and production
 `client.c` implements. `coverleak_run.py`'s `asn_adaptive` scheme
 measures the correct mechanism.
 
